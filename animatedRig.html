@@ -21,7 +21,6 @@
   <select id="pose" title="Jump to key pose"></select>
   <input type="range" id="scrub" min="0" max="1000" value="0" title="Scrub cycle">
   <span class="sep"></span>
-  <span id="menus" style="display:flex;gap:6px"></span>
   <button class="btn" id="reset">Reset</button>
   <span class="sep"></span>
   <button class="btn" id="cfgExport" title="Download the current slider values, grids and pivots as rig_config.json">⬇ Export</button>
@@ -379,8 +378,9 @@ function solve(u){
 /* ---------- drawing ---------- */
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,DPR=1;
-function resize(){DPR=window.devicePixelRatio||1;W=innerWidth;H=innerHeight;
-  cv.width=W*DPR;cv.height=H*DPR;cv.style.width=W+'px';cv.style.height=H+'px';}
+function resize(){DPR=window.devicePixelRatio||1;const L=dockW('left'),R=dockW('right');W=innerWidth-L-R;H=innerHeight;   // canvas sits between the docks, so everything re-centres on its own
+  const rs=document.documentElement.style;rs.setProperty('--dockL',L+'px');rs.setProperty('--dockR',R+'px');
+  cv.width=W*DPR;cv.height=H*DPR;cv.style.left=L+'px';cv.style.right='auto';cv.style.width=W+'px';cv.style.height=H+'px';}
 addEventListener('resize',resize);
 
 const COL={near:'#00ffff',far:'#dc4ce8',torso:'#A55AFF',head:'#ff69b4',joint:'#FFC7FF',pelvis:'#67FEBD',bg:'#170032'};
@@ -830,25 +830,26 @@ const MENUS={
   {k:'nearLegOver',l:'Near leg over pelvis',check:1}],
  'Pivots':[{pivots:1}]
 };
-const panels={}, syncers=[];
-function buildMenus(){
-  const host=$('menus');
-  for(const name in MENUS){
-    const btn=document.createElement('button');btn.className='btn menubtn';btn.textContent=name+' ▾';
-    const pn=document.createElement('div');pn.className='panel';panels[name]=pn;
-    if(name==='Squash/Stretch'||name==='Feet'||name==='Pivots'){pn.classList.add(name==='Squash/Stretch'?'wide':'mid');pn.dataset.right='1';}
-    MENUS[name].forEach(it=>addRow(pn,it));
-    btn.onclick=e=>{
-      e.stopPropagation();
-      for(const k in panels){
-        if(k===name){const open=!pn.classList.contains('open');pn.classList.toggle('open',open);
-          if(open){const rc=btn.getBoundingClientRect();pn.style.left=(pn.dataset.right?innerWidth-pn.offsetWidth-8:Math.max(6,Math.min(rc.left,innerWidth-pn.offsetWidth-8)))+'px';}}
-        else panels[k].classList.remove('open');
-      }
-    };
-    host.appendChild(btn);document.body.appendChild(pn);
+const syncers=[];
+/* ---------- docks: side panels of collapsible sections (any number open at once). buildDock('left',MENUS); the cape menu can be buildDock('right',...) ---------- */
+const DOCK_KEY='rigDockOpen_v1', dockOpen=(()=>{try{return JSON.parse(localStorage.getItem(DOCK_KEY)||'null')||{Motion:true};}catch(e){return {Motion:true};}})();
+const docks={};
+const dockW=side=>{const d=docks[side];return d&&!d.classList.contains('collapsed')?d.offsetWidth:0;};
+function buildDock(side,menus){
+  const dk=document.createElement('div');dk.className='dock '+side;docks[side]=dk;
+  const tab=document.createElement('button');tab.className='btn docktab '+side;tab.title='Show / hide this panel';
+  const setTab=()=>{const c=dk.classList.contains('collapsed');tab.textContent=side==='left'?(c?'▶':'◀'):(c?'◀':'▶');};
+  tab.onclick=e=>{dk.classList.toggle('collapsed');setTab();resize();e.target.blur();};
+  for(const name in menus){
+    const sec=document.createElement('div');sec.className='sec';
+    const hd=document.createElement('button');hd.className='sec-h';
+    const bd=document.createElement('div');bd.className='sec-b';
+    const paint=()=>{const o=!!dockOpen[name];sec.classList.toggle('open',o);hd.textContent=(o?'▾ ':'▸ ')+name;};
+    hd.onclick=e=>{dockOpen[name]=!dockOpen[name];paint();try{localStorage.setItem(DOCK_KEY,JSON.stringify(dockOpen));}catch(x){}e.target.blur();};
+    menus[name].forEach(it=>addRow(bd,it));
+    paint();sec.append(hd,bd);dk.appendChild(sec);
   }
-  document.addEventListener('click',e=>{if(!e.target.closest('.panel')&&!(S.edit&&e.target===cv))for(const k in panels)panels[k].classList.remove('open');});
+  document.body.append(dk,tab);setTab();
 }
 function addRow(pn,it){
   if(it.pivots){buildPivotPanel(pn);return;}
@@ -873,6 +874,7 @@ function addRow(pn,it){
     inp.oninput=()=>{P[it.k]=+inp.value;val.textContent=(+inp.value).toFixed(dec);rebuild();if(it.on)it.on();};
     syncers.push(()=>{inp.value=P[it.k];val.textContent=(+P[it.k]).toFixed(dec);});
   }
+  inp.addEventListener('change',()=>inp.blur());   // the dock stays open, so hand the keyboard back (Space / arrows) after each adjustment
   row.append(lab,inp,val);pn.appendChild(row);
 }
 function syncAll(){syncers.forEach(f=>f());}
@@ -937,7 +939,7 @@ function setCycle(c){
   await loadArt();
   loadGhost();
   resetGrids();resetFootGrids();
-  buildMenus();
+  buildDock('left',MENUS);
   resize();
   setCycle('run');
   pivSyncUI();

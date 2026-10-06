@@ -10,14 +10,14 @@
   "bones": {
     "thigh":    { "length": 173.2, "from": "hip",      "to": "knee",  "angleKey": "thigh" },
     "shin":     { "length": 147.0, "from": "knee",     "to": "ankle", "angleKey": "shin" },
-    "upperArm": { "length": 96.3,  "from": "shoulder", "to": "elbow", "angleKey": "upperArm" },
+    "upperArm": { "length": 80,  "from": "shoulder", "to": "elbow", "angleKey": "upperArm" },
     "forearm":  { "length": 50,  "from": "elbow",    "to": "wrist", "angleKey": "forearm" }
   },
   "derived": {
     "legLength": 320.2,
-    "armLength": 176.0,
+    "armLength": 130,
     "shinToThighRatio": 0.85,
-    "forearmToUpperArmRatio": 0.83
+    "forearmToUpperArmRatio": 0.63
   },
   "torso": {
     "neckToChest": 67.0,
