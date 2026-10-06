@@ -84,7 +84,7 @@ const RUN_CYCLE = RUN_POSE_ORDER.map((pose, i) => ({
   lift: POSES[pose].lift,
 }));
 
-const SPRITE_SRC = "images/player.png"; // <- POINT AT YOUR REAL SHEET, E.G. "./sprites/character.png"
+const SPRITE_SRC = "assets/images/player.png"; // <- POINT AT YOUR REAL SHEET, E.G. "./sprites/character.png"
                           //    LEAVE null TO USE THE GENERATED PLACEHOLDER BELOW
 
 /* ---------- CLOAK OVERLAY CONFIG ----------
@@ -100,8 +100,8 @@ const SPRITE_SRC = "images/player.png"; // <- POINT AT YOUR REAL SHEET, E.G. "./
    MIRRORED AUTOMATICALLY WHEN FACING LEFT (SEE cloakLayer()). CLOAK_ANCHOR
    IS THE POINT ON THE 300x300 CLOAK ART PINNED TO (x,y); STRING LIKE
    "topright" OR A Vec2 WITH EACH AXIS FROM -1 (left/top) TO 1 (right/bottom). */
-const CLOAK_BACK_SRC = "images/cloakBottom.png";
-const CLOAK_FRONT_SRC = "images/cloakTop.png";
+const CLOAK_BACK_SRC = "assets/images/cloakBottom.png";
+const CLOAK_FRONT_SRC = "assets/images/cloakTop.png";
 const CLOAK_FRAME_COUNT = 4;
 const CLOAK_FPS = 5;               // wind-loop speed - independent of body pose/frame
 const CLOAK_ANCHOR = { x: 0.6, y: 0.7 }; // where on cloak art the attach point sits
@@ -184,7 +184,7 @@ const WALL_JUMP_PUSH = 480;         // horizontal px/s pushed away from wall
 const WALL_JUMP_LOCK_TIME = 0.18;   // seconds of overridden horizontal input after wall jump
 
 /* ---------- SPELL CONFIG ---------- */
-const SPELL_SRC = "images/spell.png";
+const SPELL_SRC = "assets/images/spell.png";
 const SPELL_FRAME_COUNT = 7;
 const SPELL_SCALE = 1; // tweak once you see it in place
 const SPELL_ANIM_SPEED = 14; // frames per second for spell sheet
@@ -197,7 +197,7 @@ const SPELL_FORWARD_OFFSET = 40; // extra px in front of player beyond half widt
    swoosh.png IS 4 FRAMES, EACH 400x400 - SAME CELL SIZE AS player.png's
    FRAMES - SO IT'S DRAWN WITH THE EXACT SAME pos/anchor/scale AS THE PLAYER
    AND LANDS PERFECTLY OVER THE KICK POSE WITH NO OFFSET TUNING NEEDED. */
-const SWOOSH_SRC = "images/swoosh.png";
+const SWOOSH_SRC = "assets/images/swoosh.png";
 const SWOOSH_FRAME_COUNT = 4;
 const SWOOSH_FPS = 25;             // ~0.25s for 4 frames, matched to ATTACK_KICK_HOLD_TIME
 const SWOOSH_Z = 11;               // in front of player (10)
@@ -280,7 +280,7 @@ const LAMP_RADIUS = 400;             // light radius of each lamp
 const LAMP_POLE_H = 120;             // px the lamp orb sits above the ground
 
 /* ---------- LEVEL ART CONFIG ---------- */
-const TILES_SRC = "images/tiles.png";      // 6 frames, 60x60px each
+const TILES_SRC = "assets/images/tiles.png";      // 6 frames, 60x60px each
 const TILE_SIZE = 40;
 const TILE_FRAME_COUNT = 6;
 const PLATFORM_H = 40;              // platform collider height (one tile row)
@@ -294,7 +294,7 @@ const TILE_LEFT_CAP = null;
 const TILE_RIGHT_CAP = null;
 const TILE_SEED = 1337;
 
-const GROUND_SRC = "images/ground.png";    // 125x80px, repeated along ground
+const GROUND_SRC = "assets/images/ground.png";    // 125x80px, repeated along ground
 const GROUND_TILE_W = 125;
 const GROUND_W = 12500;              // 100 repeats of 125px
 const GROUND_H = 80;
@@ -342,13 +342,13 @@ const TRAIL_GLOW = 2.4;             // halo radius multiple of mote; 0 = no glow
      puff    - landing burst, replaces old procedural dust puffs
      spawnFx - plays once whenever spawnPlayer() runs (first load and
                respawn-after-falling-off-the-level) */
-const PUFF_SRC = "images/puff.png";
+const PUFF_SRC = "assets/images/puff.png";
 const PUFF_FRAME_COUNT = 6;
 const PUFF_FPS = 18;                // one-shot playback speed
 const PUFF_MIN_IMPACT = 350;        // landing vel.y (px/s) needed to trigger puff
 const PUFF_SCALE = [0.7, 0.9];     // min/max final scale, driven by landing force
 
-const SPAWN_FX_SRC = "images/spawn.png";
+const SPAWN_FX_SRC = "assets/images/spawn.png";
 const SPAWN_FX_FRAME_COUNT = 7;
 const SPAWN_FX_FPS = 14;
 const SPAWN_FX_SCALE = 0.9;         // final scale (matches SCALE; spawn.png is 1:1 pixel-art)
