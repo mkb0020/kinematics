@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vector Spell Lab</title>
+<style>
+  :root { --bg:#0A0314; --panel:#230141; --line:#5b48a9; --cyan:#00ffff; --pink:#FF10F0; --txt:#b880fa; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font-family: ui-monospace, Menlo, Consolas, monospace; overflow:hidden; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #ui { position:fixed; left:0; right:0; top:0; z-index:2; display:flex; flex-wrap:wrap; gap:8px;
+    align-items:center; padding:12px; background:linear-gradient(#0A0314ee, #0A031400); }
+  button, select { background:#230141cc; color:#b880fa; border:1px solid var(--line); border-radius:6px;
+    padding:8px 12px; font:inherit; font-size:13px; cursor:pointer; letter-spacing:.04em; }
+  button:hover, select:hover { border-color:var(--cyan); color:var(--cyan); }
+  button.active { border-color:var(--pink); color:#fff; box-shadow:0 0 12px #FF10F0aa, inset 0 0 8px #FF10F055; }
+  label { font-size:13px; display:flex; align-items:center; gap:6px; cursor:pointer; }
+  #hint { position:fixed; bottom:12px; left:0; right:0; text-align:center; font-size:12px; opacity:.6; z-index:2; pointer-events:none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <button data-spell="circle" class="active">1 · Arcane Circle</button>
+  <button data-spell="beam">2 · Beam</button>
+  <button data-spell="lightning">3 · Lightning</button>
+  <button data-spell="nova">4 · Shockwave</button>
+  <select id="theme">
+    <option value="arcane">Arcane (violet)</option>
+    <option value="frost">Frost (cyan)</option>
+    <option value="void">Void (magenta)</option>
+  </select>
+  <label><input type="checkbox" id="tilt" checked> ground tilt</label>
+</div>
+<div id="hint">click anywhere to cast at that spot · keys 1–4 pick a spell</div>
+
+<script>
+// ============================================================
+//  VECTOR SPELL LAB
+//  The big idea: every effect is a function of progress p (0 -> 1).
+//  We never store frames. We just ask "what does the spell look
+//  like at p = 0.37?" and draw shapes from math.
+// ============================================================
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W, H, DPR;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------- Themes (pulled from your palette) ----------
+const THEMES = {
+  arcane: { dark:'#450080', mid:'#8a3efa', bright:'#dc4ce8', accent:'#00ffff', core:'#ffffff' },
+  frost:  { dark:'#14259c', mid:'#1e87fc', bright:'#00ffff', accent:'#8b4bf5', core:'#ffffff' },
+  void:   { dark:'#350066', mid:'#E812C6', bright:'#FF10F0', accent:'#00fbfe', core:'#ffffff' },
+};
+
+// ---------- Small math helpers ----------
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+const easeOutBack = t => { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
+
+// ---------- Drawing helpers ----------
+// Stroke the current path with a glow. shadowBlur is the cheap way to get neon.
+function glow(c, color, width, blur) {
+  c.strokeStyle = color;
+  c.lineWidth = width;
+  c.shadowColor = color;
+  c.shadowBlur = blur;
+  c.stroke();
+}
+function circle(c, r) { c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); }
+
+// Star polygon {n/step}. n=6, step=2 -> hexagram. n=5, step=2 -> pentagram.
+function starPath(c, n, r, rot, step) {
+  c.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const a = rot + (i * step * Math.PI * 2) / n;
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    i === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+  }
+  c.closePath();
+}
+
+// ---------- Sparks (tiny particles shared by several spells) ----------
+function makeSparks(x, y, count, speedMin, speedMax, spread, baseAngle) {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const a = baseAngle + rand(-spread, spread);
+    const s = rand(speedMin, speedMax);
+    out.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 1) });
+  }
+  return out;
+}
+function updateSparks(sparks, dt) {
+  for (const s of sparks) {
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    s.vx *= 0.96; s.vy *= 0.96;
+    s.life -= dt * 1.4;
+  }
+}
+function drawSparks(c, sparks, color, tilt = 1) {
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  c.lineCap = 'round';
+  for (const s of sparks) {
+    if (s.life <= 0) continue;
+    c.globalAlpha = clamp(s.life);
+    c.beginPath();
+    c.moveTo(s.x, s.y * 1);
+    c.lineTo(s.x - s.vx * 0.04, s.y - s.vy * 0.04 * tilt);
+    glow(c, color, 2, 10);
+  }
+  c.restore();
+}
+
+// ============================================================
+//  SPELL 1: ARCANE CIRCLE
+//  Layers of rings, ticks, rune glyphs, and star polygons
+//  all rotating at different speeds.
+// ============================================================
+function spellCircle(x, y, th, tilt) {
+  const R = 150;
+  const rot0 = rand(0, Math.PI * 2);
+
+  // Random "runes": 3 little line segments inside a tiny box. Fixed once per cast.
+  const glyphs = [];
+  for (let i = 0; i < 24; i++) {
+    const segs = [];
+    for (let k = 0; k < 3; k++) {
+      segs.push([rand(-1, 1), rand(-1, 1), rand(-1, 1), rand(-1, 1)]);
+    }
+    glyphs.push(segs);
+  }
+
+  return {
+    t: 0, dur: 2.6,
+    update(dt) { this.t += dt; },
+    draw(c) {
+      const p = this.t / this.dur;
+      const open = easeOutBack(clamp(p / 0.26));      // bloom open with a little overshoot
+      const fade = p > 0.72 ? 1 - (p - 0.72) / 0.28 : 1; // fade out at the end
+      const s = this.t;                                 // seconds, drives rotation
+
+      c.save();
+      c.translate(x, y);
+      if (tilt) c.scale(1, 0.32);                       // squash so it looks like it's on the floor
+      c.globalAlpha = Math.max(0, fade);
+      c.globalCompositeOperation = 'lighter';
+      c.lineCap = 'round';
+
+      // initial shockwave flash as it opens
+      if (p < 0.3) {
+        const k = p / 0.3;
+        c.save();
+        c.globalAlpha *= 1 - k;
+        circle(c, R * (0.9 + k * 0.5));
+        glow(c, th.accent, 4, 25);
+        c.restore();
+      }
+
+      c.scale(open, open);
+
+      // soft inner glow disc
+      const g = c.createRadialGradient(0, 0, 0, 0, 0, R);
+      g.addColorStop(0, th.mid + '88');
+      g.addColorStop(0.7, th.dark + '33');
+      g.addColorStop(1, th.dark + '00');
+      c.fillStyle = g;
+      circle(c, R); c.fill();
+
+      // outer double ring
+      circle(c, R);        glow(c, th.bright, 3, 22);
+      circle(c, R * 0.94); glow(c, th.mid, 1.2, 8);
+
+      // tick marks (rotating slowly)
+      c.save();
+      c.rotate(rot0 + s * 0.25);
+      for (let i = 0; i < 72; i++) {
+        const a = (i / 72) * Math.PI * 2;
+        const long = i % 6 === 0;
+        const r1 = R * 0.88, r2 = R * (long ? 0.935 : 0.915);
+        c.beginPath();
+        c.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+        c.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+        glow(c, long ? th.accent : th.mid, long ? 2 : 1, 8);
+      }
+      c.restore();
+
+      // rune ring (rotates the other way)
+      circle(c, R * 0.84); glow(c, th.mid, 1.2, 8);
+      circle(c, R * 0.66); glow(c, th.mid, 1.2, 8);
+      c.save();
+      c.rotate(-s * 0.4);
+      const gs = R * 0.05;
+      for (let i = 0; i < glyphs.length; i++) {
+        const a = (i / glyphs.length) * Math.PI * 2;
+        c.save();
+        c.translate(Math.cos(a) * R * 0.75, Math.sin(a) * R * 0.75);
+        c.rotate(a + Math.PI / 2);
+        for (const sg of glyphs[i]) {
+          c.beginPath();
+          c.moveTo(sg[0] * gs, sg[1] * gs);
+          c.lineTo(sg[2] * gs, sg[3] * gs);
+          glow(c, th.bright, 1.6, 10);
+        }
+        c.restore();
+      }
+      c.restore();
+
+      // dashed ring
+      c.save();
+      c.rotate(s * 0.7);
+      c.setLineDash([R * 0.05, R * 0.03]);
+      circle(c, R * 0.58); glow(c, th.accent, 2, 12);
+      c.restore();
+
+      // hexagram = two triangles
+      starPath(c, 6, R * 0.6, -s * 0.5 + rot0, 2);
+      glow(c, th.accent, 2, 16);
+
+      // inner pentagram
+      starPath(c, 5, R * 0.3, s * 1.2, 2);
+      glow(c, th.bright, 2, 16);
+      circle(c, R * 0.32); glow(c, th.mid, 1.5, 10);
+
+      // hot core
+      circle(c, R * 0.05 + Math.sin(s * 6) * 2);
+      c.fillStyle = th.core; c.shadowColor = th.bright; c.shadowBlur = 30; c.fill();
+
+      c.restore();
+    },
+  };
+}
+
+// ============================================================
+//  SPELL 2: BEAM
+//  Charge an orb -> fire a layered, rippling line -> impact burst.
+//  A beam is just the same line drawn 4 times, thick to thin,
+//  dark to white. The layering is what sells the glow.
+// ============================================================
+function spellBeam(from, to, th) {
+  const len = Math.hypot(to.x - from.x, to.y - from.y);
+  const ang = Math.atan2(to.y - from.y, to.x - from.x);
+  let sparks = [], burst = false;
+
+  return {
+    t: 0, dur: 1.2,
+    update(dt) {
+      this.t += dt;
+      if (!burst && this.t / this.dur > 0.3) {
+        burst = true;
+        sparks = makeSparks(to.x, to.y, 70, 120, 520, 1.2, ang + Math.PI);
+      }
+      updateSparks(sparks, dt);
+    },
+    draw(c) {
+      const p = this.t / this.dur;
+      const charge = clamp(p / 0.2);
+      const fire = clamp((p - 0.18) / 0.12);
+      const fade = p > 0.6 ? 1 - (p - 0.6) / 0.4 : 1;
+      const reach = len * easeOutCubic(fire);
+      const w = 26 * easeOutCubic(fire) * fade * (1 + Math.sin(this.t * 60) * 0.08);
+
+      c.save();
+      c.globalCompositeOperation = 'lighter';
+      c.lineCap = 'round';
+      c.lineJoin = 'round';
+
+      c.save();
+      c.translate(from.x, from.y);
+      c.rotate(ang);
+
+      // charging orb at the staff
+      const orbR = (6 + 26 * charge) * (p > 0.5 ? Math.max(0, fade) : 1);
+      const og = c.createRadialGradient(0, 0, 0, 0, 0, orbR * 1.6);
+      og.addColorStop(0, th.core);
+      og.addColorStop(0.3, th.bright);
+      og.addColorStop(1, th.dark + '00');
+      c.fillStyle = og;
+      c.beginPath(); c.arc(0, 0, orbR * 1.6, 0, Math.PI * 2); c.fill();
+
+      if (fire > 0) {
+        // the straight core beam, 4 layers
+        const layers = [
+          [th.dark,   w * 1.6, 40, 0.55],
+          [th.mid,    w * 1.0, 28, 0.8],
+          [th.bright, w * 0.55, 18, 1],
+          [th.core,   w * 0.22, 10, 1],
+        ];
+        for (const [col, lw, bl, al] of layers) {
+          c.globalAlpha = al * Math.max(0, fade);
+          c.beginPath(); c.moveTo(0, 0); c.lineTo(reach, 0);
+          glow(c, col, Math.max(0.1, lw), bl);
+        }
+
+        // two rippling accent strands that twist around the beam
+        c.globalAlpha = Math.max(0, fade);
+        for (const side of [1, -1]) {
+          c.beginPath();
+          for (let x = 0; x <= reach; x += 6) {
+            const env = Math.sin((x / Math.max(reach, 1)) * Math.PI);   // pinch at both ends
+            const y = Math.sin(x * 0.06 - this.t * 28) * w * 0.9 * side * env;
+            x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
+          }
+          glow(c, th.accent, 2, 14);
+        }
+      }
+      c.restore();
+
+      // impact
+      if (burst) {
+        const k = clamp((p - 0.3) / 0.7);
+        c.save();
+        c.translate(to.x, to.y);
+        c.globalAlpha = (1 - k);
+        const ig = c.createRadialGradient(0, 0, 0, 0, 0, 80 * (1 - k * 0.3));
+        ig.addColorStop(0, th.core);
+        ig.addColorStop(0.3, th.bright);
+        ig.addColorStop(1, th.dark + '00');
+        c.fillStyle = ig;
+        c.beginPath(); c.arc(0, 0, 80, 0, Math.PI * 2); c.fill();
+        circle(c, 20 + easeOutCubic(k) * 110);
+        glow(c, th.accent, lerp(5, 1, k), 20);
+        c.restore();
+        drawSparks(c, sparks, th.bright);
+      }
+      c.restore();
+    },
+  };
+}
+
+// ============================================================
+//  SPELL 3: LIGHTNING
+//  Midpoint displacement: take a straight line, split it in half,
+//  nudge the middle sideways, repeat. Redo it every few ms so it
+//  flickers like real electricity.
+// ============================================================
+function jag(a, b, disp, iters = 7) {
+  let pts = [a, b];
+  for (let i = 0; i < iters; i++) {
+    const out = [pts[0]];
+    for (let j = 0; j < pts.length - 1; j++) {
+      const p = pts[j], q = pts[j + 1];
+      const dx = q.x - p.x, dy = q.y - p.y;
+      const l = Math.hypot(dx, dy) || 1;
+      const o = (Math.random() - 0.5) * disp;
+      out.push({ x: (p.x + q.x) / 2 - (dy / l) * o, y: (p.y + q.y) / 2 + (dx / l) * o }, q);
+    }
+    pts = out;
+    disp *= 0.55;
+  }
+  return pts;
+}
+
+function spellLightning(from, to, th) {
+  const len = Math.hypot(to.x - from.x, to.y - from.y);
+  let bolts = [], timer = 0;
+
+  function rebuild() {
+    bolts = [];
+    const main = jag(from, to, len * 0.28);
+    bolts.push({ pts: main, w: 1 });
+    const branches = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < branches; i++) {
+      const base = main[Math.floor(rand(0.15, 0.85) * main.length)];
+      const a = Math.atan2(to.y - from.y, to.x - from.x) + rand(-1.1, 1.1);
+      const l = len * rand(0.1, 0.28);
+      bolts.push({ pts: jag(base, { x: base.x + Math.cos(a) * l, y: base.y + Math.sin(a) * l }, l * 0.5, 5), w: 0.45 });
+    }
+  }
+  rebuild();
+
+  return {
+    t: 0, dur: 0.75,
+    update(dt) {
+      this.t += dt; timer += dt;
+      if (timer > 0.05) { timer = 0; rebuild(); }
+    },
+    draw(c) {
+      const p = this.t / this.dur;
+      const fade = p > 0.5 ? 1 - (p - 0.5) / 0.5 : 1;
+      c.save();
+      c.globalCompositeOperation = 'lighter';
+      c.lineCap = 'round'; c.lineJoin = 'round';
+      c.globalAlpha = Math.max(0, fade) * rand(0.75, 1);
+
+      for (const b of bolts) {
+        const layers = [
+          [th.mid,    9 * b.w, 30],
+          [th.bright, 4 * b.w, 18],
+          [th.core,   1.6 * b.w, 8],
+        ];
+        for (const [col, lw, bl] of layers) {
+          c.beginPath();
+          b.pts.forEach((pt, i) => i ? c.lineTo(pt.x, pt.y) : c.moveTo(pt.x, pt.y));
+          glow(c, col, lw, bl);
+        }
+      }
+      // flash at both ends
+      for (const [pt, r] of [[from, 28], [to, 60]]) {
+        const g = c.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, r);
+        g.addColorStop(0, th.core); g.addColorStop(0.35, th.bright); g.addColorStop(1, th.dark + '00');
+        c.fillStyle = g;
+        c.beginPath(); c.arc(pt.x, pt.y, r, 0, Math.PI * 2); c.fill();
+      }
+      c.restore();
+    },
+  };
+}
+
+// ============================================================
+//  SPELL 4: SHOCKWAVE (NOVA)
+//  A few rings expanding with staggered delays + a radial spark burst.
+// ============================================================
+function spellNova(x, y, th, tilt) {
+  const maxR = 260;
+  const sparks = makeSparks(0, 0, 60, 150, 480, Math.PI, 0);
+  const ty = tilt ? 0.32 : 1;
+  for (const s of sparks) s.vy *= ty;       // squash sparks too so they match the ground plane
+
+  return {
+    t: 0, dur: 1.3,
+    update(dt) { this.t += dt; updateSparks(sparks, dt); },
+    draw(c) {
+      c.save();
+      c.translate(x, y);
+      c.globalCompositeOperation = 'lighter';
+
+      // central flash
+      const fp = clamp(this.t / 0.35);
+      if (fp < 1) {
+        c.save();
+        c.scale(1, ty);
+        const g = c.createRadialGradient(0, 0, 0, 0, 0, 120);
+        g.addColorStop(0, th.core); g.addColorStop(0.3, th.bright); g.addColorStop(1, th.dark + '00');
+        c.globalAlpha = 1 - fp;
+        c.fillStyle = g;
+        c.beginPath(); c.arc(0, 0, 120, 0, Math.PI * 2); c.fill();
+        c.restore();
+      }
+
+      // rings, each starting a little later and a little slower
+      const rings = [
+        [0.00, 1.00, th.core,   1.0],
+        [0.07, 0.82, th.bright, 1.0],
+        [0.15, 0.62, th.mid,    0.9],
+        [0.22, 0.45, th.accent, 0.8],
+      ];
+      for (const [delay, size, col, al] of rings) {
+        const k = clamp((this.t - delay) / 0.9);
+        if (k <= 0 || k >= 1) continue;
+        const e = easeOutCubic(k);
+        c.save();
+        c.scale(1, ty);
+        c.globalAlpha = (1 - k) * al;
+        circle(c, maxR * size * e);
+        glow(c, col, lerp(14, 1, k), 24);
+        c.restore();
+      }
+
+      // sparks live in the same translated space
+      drawSparks(c, sparks, th.bright, 1);
+      c.restore();
+    },
+  };
+}
+
+// ============================================================
+//  SCENE: a tiny placeholder wizard + a faint floor grid
+// ============================================================
+const effects = [];
+const wiz = { x: 0, y: 0 };
+let target = { x: 0, y: 0 };
+let floorY = 0;
+
+function layout() {
+  floorY = H * 0.78;
+  wiz.x = W * 0.2; wiz.y = floorY;
+  if (!target.x) target = { x: W * 0.65, y: floorY - 40 };
+}
+layout();
+addEventListener('resize', layout);
+
+function staffTip(time) {
+  return { x: wiz.x + 34, y: wiz.y - 92 + Math.sin(time * 2) * 2 };
+}
+
+function drawBackground(time) {
+  ctx.fillStyle = '#0A0314';
+  ctx.fillRect(0, 0, W, H);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0A0314'); g.addColorStop(0.7, '#230141'); g.addColorStop(1, '#0A0314');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // floor grid
+  ctx.save();
+  ctx.strokeStyle = '#5b48a9';
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.35;
+  ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(W, floorY); ctx.stroke();
+  ctx.globalAlpha = 0.14;
+  for (let i = 1; i < 8; i++) {
+    const y = floorY + Math.pow(i, 1.7) * 6;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  for (let i = -20; i <= 20; i++) {
+    ctx.beginPath();
+    ctx.moveTo(W / 2 + i * 40, floorY);
+    ctx.lineTo(W / 2 + i * 160, H);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawWizard(time) {
+  const { x, y } = wiz;
+  const tip = staffTip(time);
+  const th = THEMES[themeSel.value];
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = th.mid; ctx.fillStyle = '#0A0314';
+  ctx.shadowColor = th.mid; ctx.shadowBlur = 12; ctx.lineWidth = 2;
+
+  // robe
+  ctx.beginPath(); ctx.moveTo(x - 24, y); ctx.lineTo(x - 12, y - 70); ctx.lineTo(x + 12, y - 70); ctx.lineTo(x + 24, y); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  // head
+  ctx.beginPath(); ctx.arc(x, y - 82, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // hat
+  ctx.beginPath(); ctx.moveTo(x - 24, y - 88); ctx.lineTo(x + 24, y - 88);
+  ctx.moveTo(x - 14, y - 88); ctx.lineTo(x + 6, y - 132); ctx.lineTo(x + 14, y - 88);
+  ctx.stroke();
+  // staff
+  ctx.strokeStyle = th.accent; ctx.shadowColor = th.accent;
+  ctx.beginPath(); ctx.moveTo(tip.x, y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+  ctx.fillStyle = th.bright; ctx.shadowColor = th.bright; ctx.shadowBlur = 20;
+  ctx.beginPath(); ctx.arc(tip.x, tip.y, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // target marker
+  ctx.save();
+  ctx.strokeStyle = th.accent; ctx.globalAlpha = 0.45; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(target.x - 10, target.y); ctx.lineTo(target.x + 10, target.y);
+  ctx.moveTo(target.x, target.y - 10); ctx.lineTo(target.x, target.y + 10);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ============================================================
+//  CASTING + MAIN LOOP
+// ============================================================
+const themeSel = document.getElementById('theme');
+const tiltChk = document.getElementById('tilt');
+let current = 'circle';
+
+function cast(name, time) {
+  const th = THEMES[themeSel.value];
+  const tilt = tiltChk.checked;
+  const tip = staffTip(time);
+  if (name === 'circle')    effects.push(spellCircle(target.x, target.y, th, tilt));
+  if (name === 'beam')      effects.push(spellBeam(tip, target, th));
+  if (name === 'lightning') effects.push(spellLightning(tip, target, th));
+  if (name === 'nova')      effects.push(spellNova(target.x, target.y, th, tilt));
+}
+
+function select(name) {
+  current = name;
+  document.querySelectorAll('button[data-spell]').forEach(b => b.classList.toggle('active', b.dataset.spell === name));
+}
+
+document.querySelectorAll('button[data-spell]').forEach(b =>
+  b.addEventListener('click', () => { select(b.dataset.spell); cast(current, performance.now() / 1000); }));
+
+cv.addEventListener('pointerdown', e => {
+  target = { x: e.clientX, y: e.clientY };
+  cast(current, performance.now() / 1000);
+});
+
+addEventListener('keydown', e => {
+  const map = { '1': 'circle', '2': 'beam', '3': 'lightning', '4': 'nova' };
+  if (map[e.key]) { select(map[e.key]); cast(current, performance.now() / 1000); }
+});
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);   // clamp so a tab-switch doesn't explode things
+  last = now;
+  const time = now / 1000;
+
+  drawBackground(time);
+  drawWizard(time);
+
+  for (let i = effects.length - 1; i >= 0; i--) {
+    const fx = effects[i];
+    fx.update(dt);
+    if (fx.t >= fx.dur) { effects.splice(i, 1); continue; }
+    fx.draw(ctx);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

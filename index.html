@@ -1,0 +1,1936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Sprite Test Playground</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0c001f;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+
+<body>
+<canvas id="game"></canvas>
+
+<script type="module">
+import kaplay from "https://cdn.jsdelivr.net/npm/kaplay@3001.0.19/dist/kaplay.mjs";
+
+/* ---------- CONFIG ----------
+   SHEET IS 2 ROWS x 9 COLS, ROW-MAJOR FROM TOP-LEFT. WITH sliceX=9/sliceY=2:
+     ROW 1 (top):    cols 0-7 run cycle, col 8 blank/unused
+     ROW 2 (bottom): col 0-3 idle, col 4 jump/launch, col 5 descending,
+                     col 6 attack (spell), col 7 attack (kick), col 8 wall slide */
+const SLICE_X = 9;
+const SLICE_Y = 2;
+const RUN = { from: 0, to: 7 };
+const IDLE = { from: 9, to: 12 };   // cape baked into these 4 frames
+const JUMP_FRAME = 13;              // launch / rising
+const FALL_FRAME = 14;              // descending
+const ATTACK_FRAME = 15;            // spell attack
+const KICK_FRAME = 16;              // melee kick - cape baked in, no cloak overlay
+const WALL_SLIDE_FRAME = 17;        // wall slide - cape baked in, no cloak overlay
+
+/* ---------- WALL SLIDE VISUAL OFFSET ----------
+   UNLIKE THE OTHER FRAMES, WALL_SLIDE_FRAME'S ART ISN'T CENTERED IN ITS CELL -
+   THE CHARACTER (FACING RIGHT, AS DRAWN) SITS TOWARD THE LEFT EDGE, WITH THE
+   GRABBING HAND/FOOT RIGHT AT THE CELL'S LEFT EDGE. kaplay's anchor("bot")
+   CENTERS ON THE CELL, NOT THE VISIBLE PIXELS, AND flipX MIRRORS AROUND THAT
+   SAME CELL-CENTER - SO WITHOUT CORRECTION THE CHARACTER VISUALLY STRADDLES
+   THE WALL INSTEAD OF HUGGING ONE FACE OF IT.
+   THIS SHIFTS THE DRAWN SPRITE (VISUAL ONLY - HITBOX/PHYSICS NEVER MOVE, SAME
+   TRICK AS visualLift) BY THIS MANY PIXELS WHILE WALL-SLIDING, TO RE-CENTER
+   THE RAW (FACING-RIGHT) ART ON THE ANCHOR. TO MEASURE IT EXACTLY: OPEN
+   player.png, FIND THE WALL_SLIDE_FRAME CELL, AND COMPUTE
+   (CELL_WIDTH / 2) - (X OF THE CHARACTER'S VISUAL CENTERLINE WITHIN THE CELL).
+   IF THE SIGN LOOKS BACKWARDS (CHARACTER SHIFTS THE WRONG WAY) NEGATE IT. */
+const WALL_SLIDE_VISUAL_OFFSET_X = 150; // px - TUNE ME against a wall with F1 debug open
+
+/* ---------- AIR ANIMATION ----------
+   PICK RISING (JUMP_FRAME) OR DESCENT (FALL_FRAME) BASED ON vel.y. */
+const FALL_VEL_THRESHOLD = 30; // vel.y (px/s, down = +) above which rising -> falling
+
+/* ---------- RUN CYCLE FEEL ----------
+   KAPLAY ANIMS SUPPORT ONE FPS ONLY, SO THE RUN CYCLE IS STEPPED BY HAND
+   (SEE updateRun). EACH POSE HAS:
+     hold - FRAME DURATION MULTIPLIER (1.0 = normal, <1 = quicker, >1 = lingers)
+     lift - PX THE SPRITE IS DRAWN ABOVE THE GROUND (VISUAL ONLY - HITBOX/PHYSICS NEVER MOVE)
+   TUNE THESE LIVE: THEY'RE THE WHOLE FEEL OF THE RUN. */
+const RUN_BASE_FPS = 9; // same as the old run speed
+const POSES = {
+  contact: { hold: 1.0, lift: 3 },
+  passing: { hold: 0.7, lift: 0 }, // fastest, flush with the ground
+  takeoff: { hold: 1.0, lift: 3 },
+  up:      { hold: 1.6, lift: 7 }, // longest, highest
+};
+// WHAT EACH OF THE 8 RUN FRAMES IS, IN ORDER (SHEET FRAMES RUN.from..RUN.to)
+const RUN_POSE_ORDER = [
+  "contact", "passing", "takeoff", "up",
+  "contact", "passing", "takeoff", "up",
+];
+const RUN_CYCLE = RUN_POSE_ORDER.map((pose, i) => ({
+  frame: RUN.from + i,
+  hold: POSES[pose].hold / RUN_BASE_FPS,
+  lift: POSES[pose].lift,
+}));
+
+const SPRITE_SRC = "images/player.png"; // <- POINT AT YOUR REAL SHEET, E.G. "./sprites/character.png"
+                          //    LEAVE null TO USE THE GENERATED PLACEHOLDER BELOW
+
+/* ---------- CLOAK OVERLAY CONFIG ----------
+   idle, attackKick, AND wallSlide ALREADY HAVE THE CAPE BAKED INTO
+   player.png, SO THE OVERLAY ONLY COVERS run/jump/fall/attack (spell).
+   TWO LAYERS - cloakBack (BEHIND BODY) AND cloakFront (IN FRONT OF
+   BODY/ARM) - SANDWICH THE PLAYER SPRITE. BOTH PLAY THE SAME 4-FRAME
+   "WIND" LOOP DRIVEN BY OUR OWN TIMER (NOT KAPLAY'S ANIM SYSTEM).
+
+   TUNE EVERYTHING BELOW LIVE: CHANGE A NUMBER, SAVE, RELOAD. x/y ARE LOCAL
+   OFFSETS IN THE 400x400 PLAYER FRAME SPACE (0,0 = FEET, NEGATIVE y = UP
+   TOWARD HEAD). rot IS DEGREES, POSITIVE = CLOCKWISE, FOR FACING RIGHT -
+   MIRRORED AUTOMATICALLY WHEN FACING LEFT (SEE cloakLayer()). CLOAK_ANCHOR
+   IS THE POINT ON THE 300x300 CLOAK ART PINNED TO (x,y); STRING LIKE
+   "topright" OR A Vec2 WITH EACH AXIS FROM -1 (left/top) TO 1 (right/bottom). */
+const CLOAK_BACK_SRC = "images/cloakBottom.png";
+const CLOAK_FRONT_SRC = "images/cloakTop.png";
+const CLOAK_FRAME_COUNT = 4;
+const CLOAK_FPS = 5;               // wind-loop speed - independent of body pose/frame
+const CLOAK_ANCHOR = { x: 0.6, y: 0.7 }; // where on cloak art the attach point sits
+const CLOAK_SCALE = 1;             // uniform scale on both cloak layers
+
+const CLOAK_POSE = {
+  run:    { x: 65, y: -87, rot: 0 },
+  jump:   { x: 105, y: -125, rot: -20 },
+  fall:   { x: -20, y: -150, rot: 30 },
+  attack: { x: 55, y: -90, rot: 0 },
+};
+
+// DRAWS A DOT AT EACH CLOAK'S ATTACH POINT - HELPS WHILE DIALING IN
+// CLOAK_POSE x/y ABOVE.
+const CLOAK_DEBUG_MARKERS = false;
+
+/* ---------- CAPE PHYSICS ----------
+   PRESS V TO CYCLE THE THREE CAPE MODES LIVE (NAME SHOWN IN THE DEBUG READOUT):
+     0  sprites        - YOUR HAND-DRAWN 4-FRAME CLOAK, EXACTLY AS BEFORE
+     1  spring + warp  - SAME ART, TWO TRICKS ON TOP:
+                         (a) A DAMPED SPRING SWINGS THE WHOLE CLOAK BACK WITH SPEED AND
+                             GETS KICKED ON JUMP / LAND / DASH, SO IT OVERSHOOTS + SETTLES
+                         (b) THE ART IS SLICED INTO VERTICAL STRIPS THAT RIPPLE WITH A
+                             TRAVELING WAVE, SO THE FLAT DRAWING UNDULATES LIKE CLOTH
+     2  verlet cloth   - NO ART: A CHAIN OF POINTS SIMULATED WITH VERLET INTEGRATION
+                         (GRAVITY + AIR DRAG + DISTANCE CONSTRAINTS), DRAWN AS A TAPERED
+                         NEON RIBBON BEHIND THE BODY. REPLACES THE CLOAK OVERLAY
+   THE CAPE BAKED INTO idle / kick / wall-slide FRAMES STAYS AS DRAWN IN EVERY MODE -
+   A FULL REPLACEMENT NEEDS THOSE BODY FRAMES REDRAWN WITHOUT THE CAPE.
+   EVERY NUMBER BELOW IS SAFE TO TWEAK LIVE. */
+const CAPE_MODES = ["sprites (original)", "spring + warp", "verlet cloth"];
+const CAPE_START_MODE = 1;
+
+/* ---- mode 1: SPRING + WAVE WARP ---- */
+const CAPE_SPRING_STIFFNESS = 140;   // pull toward the target swing angle (higher = snappier)
+const CAPE_SPRING_DAMPING = 9;       // friction (critical damping would be 2*sqrt(stiffness) = ~23; lower = more wobble)
+const CAPE_SPRING_RUN_ANGLE = 10;    // degrees the cloak swings at full run speed. SIGN DEPENDS ON YOUR ART: + raises the tail of a cape that streams up-and-back, - lowers it; flip it if it swings the wrong way
+const CAPE_SPRING_FALL_ANGLE = 18;   // extra degrees when falling fast (negative while rising)
+const CAPE_SPRING_KICK = 260;        // deg/s impulse on jump / landing / dash (the overshoot)
+const CAPE_WARP_STRIPS = 30;         // vertical slices of the art (more = smoother ripple + fewer stair-steps on diagonal edges)
+const CAPE_WARP_AMP = [6, 24];       // ripple height in art px at the tip: [standing, full speed]
+const CAPE_WARP_FREQ = [1.6, 4.2];   // ripple speed in Hz: [standing, full speed]
+const CAPE_WARP_PHASE = 5.0;         // radians of wave across the cloak's length (more = more S-curves)
+
+/* ---- mode 2: VERLET CLOTH (ribbon) ---- */
+const CAPE_CLOTH = {
+  segments: 12,       // points in the chain
+  segLen: 9,         // px between points (cape length = (segments-1) * segLen)
+  gravity: 2000,      // px/s^2
+  drag: 3.6,          // per-second velocity loss = air resistance. THE "streams out behind you" knob
+  lift: 0.8,         // 0..1: how much gravity is cancelled at full run speed (1 = cape flies perfectly flat)
+  flutter: 1400,      // px/s^2 turbulence at the tip while moving
+  backBias: 2000,      // px/s^2 gentle push toward the back of the body, so the cape never flips over your front mid-air
+  iterations: 6,      // constraint passes per step (more = less stretchy)
+  bend: 0.32,         // 0..1: resists sharp folds (higher = stiffer, stays straighter)
+  step: 1 / 120,      // fixed physics step (s) - keeps the sim stable at any framerate
+  maxSteps: 6,        // cap steps per frame so a lag spike can't spiral
+  w0: 18, w1: 50,     // ribbon width at the collar / at the hem (px)
+  ripple: 0.1,       // 0..1 width wobble along the hem
+  rootOffset: { x: -10, y: -115 }, // WHERE THE CAPE HANGS FROM, RELATIVE TO CLOAK_POSE's x/y (art px, + = forward / down). The sprite cloak's pivot sits at the FRONT collar; this moves it back to the nape. TURN ON CLOAK_DEBUG_MARKERS TO SEE IT (cyan dot)
+};
+const CAPE_COLORS = ["#4d28d7", "#1e59f2", "#4843f9"]; // collar -> middle -> hem
+const CAPE_EDGE = "#4d28d7";
+const CAPE_EDGE_GLOW = "#4d28d7";
+
+const SCALE = 0.5;
+const MOVE_SPEED = 550;
+const JUMP_FORCE = 900;
+const GROUND_Y = 460;
+
+/* ---------- WALL SLIDE / WALL JUMP CONFIG ----------
+   WALL-SLIDING ENGAGES ONLY WHILE AIRBORNE, TOUCHING A "wall"-TAGGED
+   OBJECT, AND HOLDING THE DIRECTION KEY PRESSING INTO THAT WALL (CLASSIC
+   CLING - LET GO AND YOU FALL). A WALL JUMP PUSHES UP AND AWAY;
+   WALL_JUMP_LOCK_TIME BRIEFLY OVERRIDES LEFT/RIGHT INPUT SO THE PUSH
+   CLEARS THE WALL INSTEAD OF BEING CANCELLED BY A HELD KEY. */
+const WALL_SLIDE_SPEED = 150;       // max downward vel.y (px/s) while clinging
+const WALL_JUMP_FORCE = 850;        // upward kick of a wall jump (vs JUMP_FORCE)
+const WALL_JUMP_PUSH = 480;         // horizontal px/s pushed away from wall
+const WALL_JUMP_LOCK_TIME = 0.18;   // seconds of overridden horizontal input after wall jump
+
+/* ---------- SPELL CONFIG ---------- */
+const SPELL_SRC = "images/spell.png";
+const SPELL_FRAME_COUNT = 7;
+const SPELL_SCALE = 1; // tweak once you see it in place
+const SPELL_ANIM_SPEED = 14; // frames per second for spell sheet
+const ATTACK_HOLD_TIME = 0.35; // spell pose hold before returning to idle
+const ATTACK_KICK_HOLD_TIME = 0.25; // kick pose hold before returning to idle
+const HAND_HEIGHT_RATIO = 1 / 2; // hand sits roughly 1/3 down the frame
+const SPELL_FORWARD_OFFSET = 40; // extra px in front of player beyond half width
+
+/* ---------- KICK SWOOSH CONFIG ----------
+   swoosh.png IS 4 FRAMES, EACH 400x400 - SAME CELL SIZE AS player.png's
+   FRAMES - SO IT'S DRAWN WITH THE EXACT SAME pos/anchor/scale AS THE PLAYER
+   AND LANDS PERFECTLY OVER THE KICK POSE WITH NO OFFSET TUNING NEEDED. */
+const SWOOSH_SRC = "images/swoosh.png";
+const SWOOSH_FRAME_COUNT = 4;
+const SWOOSH_FPS = 25;             // ~0.25s for 4 frames, matched to ATTACK_KICK_HOLD_TIME
+const SWOOSH_Z = 11;               // in front of player (10)
+
+/* ---------- KICK SCREEN SHAKE CONFIG ---------- */
+const KICK_SHAKE_DURATION = 0.18;  // seconds the shake lasts
+const KICK_SHAKE_STRENGTH = 10;    // max px camera offset at the start of the shake
+
+/* ---------- STARTER-PACK EFFECTS ----------
+   FIVE CHEAP "GAME FEEL" TRICKS. FLIP ANY FLAG TO false TO A/B IT.
+     squash   - SPRING-DRIVEN SQUASH & STRETCH ON JUMP / LAND / DASH
+                (VISUAL ONLY - HITBOX NEVER CHANGES, SAME IDEA AS visualLift)
+     hitStop  - BRIEF FULL-GAME FREEZE WHEN THE KICK (x) CONNECTS, RIGHT ALONGSIDE
+                THE SCREEN SHAKE ABOVE
+     dash     - SHIFT OR C: DASH FORWARD, LEAVING COLORED SILHOUETTE AFTERIMAGES
+     dissolve - NOISE-THRESHOLD SHADER: PLAYER MATERIALIZES ON SPAWN. R = DISSOLVE
+                OUT + RESPAWN
+     lighting - DARK PURPLE OVERLAY WITH SOFT LIGHT HOLES (PLAYER, SPELLS, NEON
+                LAMPS). L TOGGLES IT WHILE PLAYING
+   EVERY NUMBER BELOW IS SAFE TO TWEAK LIVE. */
+const FX = { squash: true, hitStop: true, dash: true, dissolve: true, lighting: true };
+
+/* ---- SQUASH & STRETCH ----
+   x/y ARE SCALE MULTIPLIERS AROUND THE FEET (1 = NORMAL). A SPRING PULLS THE
+   SCALE BACK TO ITS TARGET, SO EVERY POP OVERSHOOTS AND WOBBLES A LITTLE. */
+const SQUASH_STIFFNESS = 520;        // spring pull toward target (higher = snappier)
+const SQUASH_DAMPING = 24;           // friction (lower = more wobble; ~2*sqrt(stiffness) = none)
+const SQUASH_JUMP = { x: 0.78, y: 1.28 };       // pop on jump launch (thin + tall)
+const SQUASH_LAND_MAX = { x: 1.12, y: 0.78 };   // squash on a full-strength landing (wide + short)
+const SQUASH_LAND_MIN_IMPACT = 150;  // landing vel.y (px/s) below this = no squash
+const SQUASH_LAND_FULL_IMPACT = 1300; // landing vel.y that counts as full strength
+const SQUASH_AIR_STRETCH = 0.14;     // extra height while airborne at top vertical speed
+const SQUASH_AIR_STRETCH_VEL = 1100; // |vel.y| (px/s) where that stretch maxes out
+const SQUASH_DASH = { x: 1.1, y: 0.9 };        // stretched long + low while dashing
+
+/* ---- HIT-STOP ---- */
+const HITSTOP_KICK = 0.07;           // seconds the whole game freezes when the kick lands
+
+/* ---- DASH + AFTERIMAGES ----
+   GHOSTS ARE FLAT-COLOR SILHOUETTES OF THE PLAYER'S CURRENT FRAME, SPAWNED
+   EVERY GHOST_INTERVAL SECONDS AND FADED/SHRUNK OVER GHOST_LIFE. COLORS CYCLE
+   THROUGH GHOST_COLORS SO THE TRAIL READS AS A NEON GRADIENT. */
+const DASH_KEYS = ["shift", "c"];
+const DASH_SPEED = 1500;             // px/s (MOVE_SPEED is 550)
+const DASH_TIME = 0.16;              // seconds a dash lasts (~240px)
+const DASH_COOLDOWN = 0.45;          // seconds before the next dash
+const GHOST_INTERVAL = 0.022;        // seconds between afterimages
+const GHOST_LIFE = 0.32;             // seconds an afterimage lives
+const GHOST_ALPHA = 0.6;             // starting opacity
+const GHOST_COLORS = ["#00ffff", "#667eea", "#dc4ce8", "#ff69b4"];
+const GHOST_Z = 9;                   // just behind player (10), in front of particles (8)
+
+/* ---- DISSOLVE SHADER ----
+   PIXELS WHOSE NOISE VALUE FALLS BELOW A MOVING THRESHOLD VANISH; A THIN BAND
+   JUST ABOVE THE THRESHOLD GLOWS. NOISE IS MEASURED IN SPRITE PIXELS FROM THE
+   CURRENT FRAME'S TOP-LEFT, SO THE PATTERN STAYS GLUED TO THE ART. */
+const DISSOLVE_SPAWN_TIME = 0.9;     // seconds to materialize on spawn
+const DISSOLVE_OUT_TIME = 0.5;       // seconds to dissolve away on R
+const DISSOLVE_CELL = 22;            // noise blob size in sprite px (bigger = chunkier)
+const DISSOLVE_EDGE = 0.22;          // glowing band width (0..1 of the noise range)
+const DISSOLVE_EDGE_INNER = "#c8fcff"; // hot core of the burn edge
+const DISSOLVE_EDGE_OUTER = "#dc4ce8"; // cooler outer rim
+
+/* ---- LIGHTING OVERLAY ----
+   ONE FULL-SCREEN RECT, DRAWN OVER THE WORLD (BUT UNDER THE DEBUG TEXT), WHOSE
+   SHADER OUTPUTS DARK PURPLE EVERYWHERE EXCEPT NEAR LIGHTS. UP TO MAX_LIGHTS AT
+   ONCE: SLOT 0 = PLAYER, SLOTS 1-2 = LIVE SPELLS, THE REST = NEAREST LAMPS. */
+const LIGHTING_Z = 500;
+const MAX_LIGHTS = 8;
+const LIGHT_AMBIENT = 0.85;          // 0 = no darkness, 1 = pitch black away from lights
+const LIGHT_AMBIENT_COLOR = "#170032";
+const LIGHT_GLOW = 0.1;             // how strongly lights tint the scene with their color
+const LIGHT_PLAYER = { radius: 520, color: "#c4b5fd", height: 70 }; // height = px above feet
+const LIGHT_SPELL = { radius: 320, color: "#ff69b4" };
+const LAMP_COLORS = ["#00ffff", "#ff69b4", "#ff6200", "#67FEBD", "#A55AFF"];
+const LAMP_FIRST_X = 350;            // x of the first neon lamp
+const LAMP_SPACING = 650;            // px between lamps
+const LAMP_COUNT = 15;
+const LAMP_RADIUS = 400;             // light radius of each lamp
+const LAMP_POLE_H = 120;             // px the lamp orb sits above the ground
+
+/* ---------- LEVEL ART CONFIG ---------- */
+const TILES_SRC = "images/tiles.png";      // 6 frames, 60x60px each
+const TILE_SIZE = 40;
+const TILE_FRAME_COUNT = 6;
+const PLATFORM_H = 40;              // platform collider height (one tile row)
+
+// TILE FRAMES SCATTERED ACROSS PLATFORMS (0-5). SEEDED, SO PATTERN IS
+// IDENTICAL ON EVERY RELOAD. CHANGE TILE_SEED TO RESHUFFLE. IF SHEET HAS
+// DEDICATED END PIECES, PUT THEIR FRAME NUMBERS IN THE CAPS BELOW AND
+// REMOVE THEM FROM TILE_FRAMES. LEAVE A CAP AS null TO NOT USE ONE.
+const TILE_FRAMES = [0, 1, 2, 3, 4, 5];
+const TILE_LEFT_CAP = null;
+const TILE_RIGHT_CAP = null;
+const TILE_SEED = 1337;
+
+const GROUND_SRC = "images/ground.png";    // 125x80px, repeated along ground
+const GROUND_TILE_W = 125;
+const GROUND_W = 12500;              // 100 repeats of 125px
+const GROUND_H = 80;
+
+/* ---------- WALLS (FOR WALL JUMPING) ----------
+   NO DEDICATED WALL ART YET - PLAIN TINTED RECTS WITH LIGHTER OUTLINE.
+   SWAP IN A SPRITE LATER BY REPLACING k.rect/k.color IN buildWalls()
+   WITH k.sprite(). EACH SITS ON GROUND AND REACHES UP GROUND_Y - y px,
+   SO TALLER VALUES = TALLER WALL. LIST BELOW MAKES ONE NARROW SHAFT
+   (CLING RIGHT, JUMP LEFT, CLING, JUMP BACK) PLUS ONE LONE WALL. */
+const WALL_W = 30;
+const WALL_COLOR = [131, 12, 222];        // 830cde
+const WALL_OUTLINE_COLOR = [196, 91, 255]; // c4b5fd-ish highlight edge
+const WALLS = [
+  { x: 13000, h: 200},
+  { x: 12000 + 160, h: 340 }, 
+  { x: 12550, h: 300 },       
+];
+
+
+/* ---------- PARTICLE CONFIG ----------
+   ONE HAND-ROLLED EFFECT REMAINS:
+     trail - glowing blue/purple motes left behind while running and airborne
+   LANDING PUFF AND SPAWN BURST ARE NOW SPRITE ANIMATIONS (SEE "ONE-SHOT
+   EFFECTS" FURTHER DOWN). EVERY NUMBER HERE IS SAFE TO TWEAK LIVE. */
+const PARTICLE_Z = 8;               // behind player (10) and spells (9), in front of level (1)
+const MAX_PARTICLES = 500;          // hard cap
+
+const TRAIL_COLORS = ["#672ff7", "#6543f9"];
+const RUN_TRAIL_INTERVAL = 0.03;   // seconds between run motes (lower = denser)
+const AIR_TRAIL_INTERVAL = 0.025;   // seconds between airborne motes
+const AIR_TRAIL_DELAY = 0.05;       // airtime before air trail starts
+const RUN_TRAIL_HEIGHT = 90;        // px above feet where run motes center (sprite ~100px tall: 50 = mid-body)
+const TRAIL_MIN_SPEED = 80;         // horizontal px/s that counts as "running"
+const TRAIL_LIFE = [0.35, 0.55];    // seconds a mote lives (min, max)
+const TRAIL_SIZE = [4, 7];      // starting radius in px (min, max)
+const TRAIL_GLOW = 2.4;             // halo radius multiple of mote; 0 = no glow
+
+/* ---------- ONE-SHOT EFFECT CONFIG ----------
+   SHORT SPRITE ANIMATIONS THAT PLAY ONCE AND REMOVE THEMSELVES (SEE
+   spawnOneShotFX()). NOT CHILDREN OF PLAYER, SO THEY DO NOT INHERIT
+   SCALE (0.5). DEFAULTS BELOW ARE SIZED TO MATCH PLAYER'S ON-SCREEN SIZE -
+   IF TOO BIG/SMALL, ADJUST FIRST.
+
+     puff    - landing burst, replaces old procedural dust puffs
+     spawnFx - plays once whenever spawnPlayer() runs (first load and
+               respawn-after-falling-off-the-level) */
+const PUFF_SRC = "images/puff.png";
+const PUFF_FRAME_COUNT = 6;
+const PUFF_FPS = 18;                // one-shot playback speed
+const PUFF_MIN_IMPACT = 350;        // landing vel.y (px/s) needed to trigger puff
+const PUFF_SCALE = [0.7, 0.9];     // min/max final scale, driven by landing force
+
+const SPAWN_FX_SRC = "images/spawn.png";
+const SPAWN_FX_FRAME_COUNT = 7;
+const SPAWN_FX_FPS = 14;
+const SPAWN_FX_SCALE = 0.9;         // final scale (matches SCALE; spawn.png is 1:1 pixel-art)
+const SPAWN_FX_Z = 11;              // in front of player (10) - beam the character stands inside
+
+
+/* ---------- KAPLAY SETUP ---------- */
+// "SCALE TRICK": KAPLAY'S LOGICAL RESOLUTION IS WHAT GAME OBJECTS LIVE IN.
+// `scale` RENDERS THAT LOGICAL CANVAS AT N× PIXEL DENSITY, THEN THE BROWSER
+// STRETCHES/LETTERBOXES IT BACK DOWN. EXTRA DENSITY KEEPS SPRITE EDGES CRISP.
+const SCREEN_W = window.innerWidth;
+const SCREEN_H = window.innerHeight;
+const scale = 2;
+
+const k = kaplay({
+  width: (SCREEN_W / 2) * scale,
+  height: (SCREEN_H / 2) * scale,
+  scale,
+  letterbox: true,
+  stretch: true,
+  global: false,
+  canvas: document.getElementById("game"),
+  background: [12, 0, 31],
+  crisp: true,
+  debug: true,
+  pixelDensity: window.devicePixelRatio,
+});
+
+console.log("backing px per logical unit:", k.canvas.width / k.width(),
+            "| DPR:", window.devicePixelRatio);
+k.setGravity(2000);
+
+const MAX_FALL_SPEED = 1600; // PREVENTS TUNNELING THROUGH THIN PLATFORMS
+
+/* ---------- ONE-WAY PLATFORMS ----------
+   SOLID ONLY WHEN LANDING FROM ABOVE. SIDES AND UNDERSIDE IGNORED, SO YOU
+   CAN JUMP UP THROUGH AND LAND ON TOP. ADD oneWay() TO ANY STATIC BODY,
+   AFTER area() AND body().
+
+   RULE: BLOCK PLAYER ONLY IF
+     1) NOT MOVING UPWARD (vel.y >= 0), AND
+     2) FEET WERE AT/ABOVE PLATFORM'S TOP EDGE ONE PHYSICS STEP AGO.
+   OTHERWISE CALL preventResolution() AND PASS THROUGH.
+   (KAPLAY'S BUILT-IN platformEffector IN 3001.0.19 CHECKS VELOCITY ANGLE
+   INSTEAD, WHICH LETS FALLING OBJECTS THROUGH - SO THIS IS HAND-ROLLED.) */
+const ONE_WAY_TOLERANCE = 4; // px of forgiveness when judging "was player above?"
+
+function oneWay() {
+  return {
+    id: "oneWay",
+    require: ["area", "body"],
+    add() {
+      // IN THIS HANDLER `col.target` IS ALWAYS THE OTHER OBJECT (THE PLAYER).
+      this.onBeforePhysicsResolve((col) => {
+        const other = col.target;
+        if (!other.has("body") || other.isStatic) return;
+
+        const platTop = this.worldArea().bbox().pos.y;
+        const hb = other.worldArea().bbox();
+        const feetNow = hb.pos.y + hb.height;
+        const feetPrev = feetNow - other.vel.y * k.fixedDt();
+
+        const landingFromAbove =
+          other.vel.y >= 0 && feetPrev <= platTop + ONE_WAY_TOLERANCE;
+
+        if (!landingFromAbove) col.preventResolution();
+      });
+    },
+  };
+}
+
+/* ---------- CAMERA FOLLOW ---------- */
+const CAM_Y_OFFSET = 120;   // keeps ground from sitting glued to bottom edge
+const CAM_LERP_SPEED = 6;   // higher = snappier follow, lower = floatier
+
+// screen shake state - shakeCamera() STARTS IT, updateCamera() FADES + APPLIES IT.
+// KEPT SEPARATE FROM camPos ITSELF SO THE SHAKE NEVER FIGHTS THE FOLLOW LERP -
+// IT'S ADDED ON TOP OF THE LERPED POSITION EACH FRAME INSTEAD.
+let shakeDuration = 0; // total length of the current shake, for fading strength to 0
+let shakeTimer = 0;    // seconds of shake remaining
+let shakeStrength = 0; // max px offset at full strength
+
+function shakeCamera(duration, strength) {
+  shakeDuration = duration;
+  shakeTimer = duration;
+  shakeStrength = strength;
+}
+
+function updateCamera() {
+  if (!player) return;
+  const target = k.vec2(player.pos.x, player.pos.y - CAM_Y_OFFSET);
+  const cur = k.camPos();
+  let next = cur.lerp(target, Math.min(1, k.dt() * CAM_LERP_SPEED));
+
+  if (shakeTimer > 0) {
+    shakeTimer -= k.dt();
+    const fade = Math.max(0, shakeTimer / shakeDuration); // 1 -> 0 over the shake's life
+    const mag = shakeStrength * fade;
+    next = next.add(k.vec2(rnd(-mag, mag), rnd(-mag, mag)));
+  }
+
+  k.camPos(next);
+}
+
+let player = null;
+let currentAnim = "idle";
+let isAttacking = false;
+let debugLabel = null;
+
+// run-cycle state
+let runIdx = 0;      // which entry of RUN_CYCLE we're on
+let runTimer = 0;    // time spent on current entry
+let visualLift = 0;  // px sprite is drawn above physics position
+
+// wall slide / wall jump state
+let touchingWall = null;  // null, or { dir } where dir = +1 (wall right) or -1 (left)
+let wallJumpLock = 0;     // seconds remaining where wall-jump push overrides left/right input
+let wallJumpPushDir = 1;  // direction (away from wall) the lock pushes while active
+let wallSlideHOffset = 0; // signed px the sprite is nudged sideways while wall-sliding, to re-center WALL_SLIDE_FRAME's off-center art (see WALL_SLIDE_VISUAL_OFFSET_X above)
+
+// starter-pack effect state
+const squash = { x: 1, y: 1, vx: 0, vy: 0 }; // spring-driven scale multipliers (see updateSquash)
+let dashTimer = 0;          // seconds of dash remaining (0 = not dashing)
+let dashCooldown = 0;       // seconds until another dash is allowed
+let dashDir = 1;            // +1 right / -1 left, locked in when the dash starts
+let airDashReady = true;    // one dash per airtime; refilled on landing / wall contact
+let ghostAcc = 0;           // accumulator for afterimage spawning
+let ghostColorIdx = 0;      // which GHOST_COLORS entry the next ghost uses
+const ghosts = [];          // live afterimages (plain objects, drawn by one layer)
+let dissolveAmount = 0;     // 0 = fully visible, 1 = fully dissolved
+let dissolveTween = null;   // running tween controller for dissolveAmount
+let lightingOn = FX.lighting;
+const activeSpells = [];    // live spell objects, so each can carry a light
+
+/* SQUASH/STRETCH HELPER COMPS: SCALE EVERYTHING DRAWN BETWEEN THEM AROUND THE
+   FEET (THE OBJECT'S pos). squashBegin GOES FIRST IN THE COMPONENT LIST,
+   squashEnd LAST, SO THE CLOAK AND LIFT/OFFSET TRICKS SQUASH WITH THE BODY. */
+function squashBegin() {
+  return {
+    id: "squashBegin",
+    draw() {
+      k.pushTransform();
+      k.pushScale(squash.x, squash.y);
+    },
+  };
+}
+function squashEnd() {
+  return {
+    id: "squashEnd",
+    draw() {
+      k.popTransform();
+    },
+  };
+}
+
+/* TINY HELPER COMPS: DRAW SPRITE SHIFTED UP BY visualLift WITHOUT TOUCHING
+   pos/hitbox. liftBegin GOES BEFORE sprite(), liftEnd AFTER IT. */
+function liftBegin() {
+  return {
+    id: "liftBegin",
+    draw() {
+      k.pushTransform();
+      k.pushTranslate(0, -visualLift);
+    },
+  };
+}
+function liftEnd() {
+  return {
+    id: "liftEnd",
+    draw() {
+      k.popTransform();
+    },
+  };
+}
+
+/* SAME TRICK AS liftBegin/liftEnd BUT SIDEWAYS - SHIFTS THE DRAWN SPRITE BY
+   wallSlideHOffset WITHOUT TOUCHING pos/hitbox. hOffsetBegin GOES BEFORE
+   sprite(), hOffsetEnd AFTER IT. */
+function hOffsetBegin() {
+  return {
+    id: "hOffsetBegin",
+    draw() {
+      k.pushTransform();
+      k.pushTranslate(wallSlideHOffset, 0);
+    },
+  };
+}
+function hOffsetEnd() {
+  return {
+    id: "hOffsetEnd",
+    draw() {
+      k.popTransform();
+    },
+  };
+}
+
+// cloak wind-loop state - one shared timer drives both layers so they never drift out of sync.
+let cloakFrame = 0;
+let cloakTimer = 0;
+
+function updateCloakAnim(dt) {
+  cloakTimer += dt;
+  const frameTime = 1 / CLOAK_FPS;
+  while (cloakTimer >= frameTime) {
+    cloakTimer -= frameTime;
+    cloakFrame = (cloakFrame + 1) % CLOAK_FRAME_COUNT;
+  }
+}
+
+// MIRRORS LEFT/RIGHT PART OF A KAPLAY ANCHOR PRESET ("topleft" <-> "topright");
+// PRESETS WITH NO LEFT/RIGHT COMPONENT ("top", "center", "bot") PASS THROUGH UNCHANGED.
+function mirrorAnchorPreset(preset, facingLeft) {
+  if (!facingLeft) return preset;
+  if (preset.includes("left")) return preset.replace("left", "right");
+  if (preset.includes("right")) return preset.replace("right", "left");
+  return preset;
+}
+
+function cloakLayer(which) { /* which: "cloakBack" or "cloakFront" - PICKS LOADED SPRITE AND, FOR DEBUG MARKER, A COLOR TO TELL THE TWO APART AT A GLANCE. */
+  return {
+    id: which,
+    draw() {  // idle, attackKick, and wallSlide ALL HAVE CAPE BAKED INTO player.png
+      if (currentAnim === "idle" || currentAnim === "attackKick" || currentAnim === "wallSlide") return;
+      if (capeMode === 2) return; // VERLET CLOTH DRAWS THE CAPE INSTEAD (drawCloth)
+      const pose = CLOAK_POSE[currentAnim] ?? CLOAK_POSE.run;
+      const facingLeft = this.flipX;
+      const dir = facingLeft ? -1 : 1;
+      const pos = k.vec2(pose.x * dir, pose.y);
+      // KAPLAY'S STRING PRESETS ("topright", ETC.) WORK AS-IS, BUT A PLAIN
+      // {x,y} OBJECT NEEDS TO BE A REAL Vec2 (NEEDS .scale() INTERNALLY) -
+      // k.vec2() WASN'T CONSTRUCTED YET WHERE CLOAK_ANCHOR IS DEFINED UP TOP,
+      // SO CONVERT IT HERE INSTEAD.
+      // flipX ONLY MIRRORS DRAWN PIXELS - THE ANCHOR IS A PURELY GEOMETRIC
+      // "HOW FAR ACROSS THE QUAD" SETTING THAT DOESN'T KNOW ABOUT flipX, SO
+      // WITHOUT THIS THE PIVOT STAYS GLUED TO THE SAME SIDE OF THE QUAD WHILE
+      // THE ART FLIPS UNDERNEATH IT. MIRRORING THE LEFT/RIGHT COMPONENT HERE
+      // KEEPS THE PIVOT ON THE SAME VISUAL FEATURE (E.G. THE COLLAR) IN BOTH DIRECTIONS.
+      const anchor = typeof CLOAK_ANCHOR === "string"
+        ? mirrorAnchorPreset(CLOAK_ANCHOR, facingLeft)
+        : k.vec2(facingLeft ? -CLOAK_ANCHOR.x : CLOAK_ANCHOR.x, CLOAK_ANCHOR.y);
+
+      // MODE 1: SAME ART, SPRING-SWUNG AND STRIP-WARPED. FALLS BACK TO THE PLAIN DRAW BELOW
+      // IF IT CAN'T RUN (STRING ANCHOR PRESET, SPRITE NOT READY).
+      const warped = capeMode === 1 && drawCloakWarped(which, cloakFrame, pos, pose.rot, dir);
+      if (!warped) k.drawSprite({
+        sprite: which,
+        frame: cloakFrame,
+        pos,
+        anchor,
+        angle: pose.rot * dir,
+        scale: CLOAK_SCALE,
+        flipX: facingLeft,
+        // DISSOLVE THE CAPE WITH THE BODY (SAME SHADER, ITS OWN SHEET'S FRAME RECT)
+        ...(FX.dissolve && dissolveAmount > 0
+          ? { shader: "dissolve", uniform: dissolveUniform(which, cloakFrame) }
+          : {}),
+      });
+
+      if (CLOAK_DEBUG_MARKERS) {
+        k.drawCircle({
+          pos,
+          radius: 4,
+          color: which === "cloakBack" ? k.rgb("#ff00ff") : k.rgb("#00ffff"),
+        });
+      }
+    },
+  };
+}
+
+async function loadPlayerSprite(src) {
+  await k.loadSprite("player", src, {
+    sliceX: SLICE_X,
+    sliceY: SLICE_Y,
+    anims: {
+      idle: { from: IDLE.from, to: IDLE.to, loop: true, speed: 4 },
+      jump: { from: JUMP_FRAME, to: JUMP_FRAME, loop: false },
+      fall: { from: FALL_FRAME, to: FALL_FRAME, loop: false },
+      attack: { from: ATTACK_FRAME, to: ATTACK_FRAME, loop: false },
+      attackKick: { from: KICK_FRAME, to: KICK_FRAME, loop: false },
+      wallSlide: { from: WALL_SLIDE_FRAME, to: WALL_SLIDE_FRAME, loop: false },
+    },
+  });
+}
+
+async function loadCloakSprites() { // NO `anims` HERE - WE DRIVE FRAME INDEX OURSELVES (SEE cloakFrame / updateCloakAnim) SO BOTH LAYERS SHARE ONE TIMER.
+  await k.loadSprite("cloakBack", CLOAK_BACK_SRC, { sliceX: CLOAK_FRAME_COUNT, sliceY: 1 });
+  await k.loadSprite("cloakFront", CLOAK_FRONT_SRC, { sliceX: CLOAK_FRAME_COUNT, sliceY: 1 });
+}
+
+async function loadSpellSprite(src) {
+  await k.loadSprite("spell", src, {
+    sliceX: SPELL_FRAME_COUNT,
+    sliceY: 1,
+    anims: {
+      cast: { from: 0, to: SPELL_FRAME_COUNT - 1, loop: false, speed: SPELL_ANIM_SPEED },
+    },
+  });
+}
+
+async function loadSwooshSprite(src) {
+  await k.loadSprite("swoosh", src, {
+    sliceX: SWOOSH_FRAME_COUNT,
+    sliceY: 1,
+    anims: {
+      play: { from: 0, to: SWOOSH_FRAME_COUNT - 1, loop: false, speed: SWOOSH_FPS },
+    },
+  });
+}
+
+async function loadEffectSprites() {
+  await k.loadSprite("puff", PUFF_SRC, {
+    sliceX: PUFF_FRAME_COUNT,
+    sliceY: 1,
+    anims: { play: { from: 0, to: PUFF_FRAME_COUNT - 1, loop: false, speed: PUFF_FPS } },
+  });
+  await k.loadSprite("spawnFx", SPAWN_FX_SRC, {
+    sliceX: SPAWN_FX_FRAME_COUNT,
+    sliceY: 1,
+    anims: { play: { from: 0, to: SPAWN_FX_FRAME_COUNT - 1, loop: false, speed: SPAWN_FX_FPS } },
+  });
+}
+
+async function loadLevelSprites() {
+  await k.loadSprite("tiles", TILES_SRC, { sliceX: TILE_FRAME_COUNT, sliceY: 1 });
+  await k.loadSprite("ground", GROUND_SRC);
+}
+
+function makeRng(seed) { // TINY SEEDED PRNG (MULBERRY32) - STABLE "RANDOM" TILE PATTERN BETWEEN RELOADS
+  let a = seed;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildLevel() { /* COLLISION OBJECTS ARE INVISIBLE (NO rect() COMP, JUST EXPLICIT AREA SHAPE). ART IS ATTACHED AS CHILD SPRITES, SO IT MOVES WITH ITS COLLIDER. PRESS F1 TO SEE HITBOXES WHILE TUNING. */
+  const ground = k.add([ // ground: invisible collider + ground.png repeated along it
+    k.pos(0, GROUND_Y),
+    k.area({ shape: new k.Rect(k.vec2(0, 0), GROUND_W, GROUND_H) }),
+    k.body({ isStatic: true }),
+    k.z(1),
+  ]);
+  const groundCols = Math.ceil(GROUND_W / GROUND_TILE_W);
+  for (let i = 0; i < groundCols; i++) {
+    ground.add([k.sprite("ground"), k.pos(i * GROUND_TILE_W, 0)]);
+  }
+
+const plats = [
+  { x: 700, y: 300, w: 200 },
+  { x: 500, y: 110, w: 160 },
+  { x: 550, y: 0, w: 200 },
+  { x: 3000, y: 300, w: 160 },
+  { x: 4000, y: 330, w: 240 },
+  { x: 5000, y: 260, w: 160 },
+  { x: 6000, y: 300, w: 240 },
+  { x: 7000, y: 380, w: 160 },
+  { x: 8000, y: 240, w: 200 },
+  { x: 9000, y: 300, w: 240 },
+  { x: 11000, y: 300, w: 280 },
+];
+
+  const rand = makeRng(TILE_SEED);
+  let prevFrame = -1;
+  const pickMid = () => {
+    let f;
+    do {
+      f = TILE_FRAMES[Math.floor(rand() * TILE_FRAMES.length)];
+    } while (f === prevFrame && TILE_FRAMES.length > 1); // no back-to-back repeats
+    prevFrame = f;
+    return f;
+  };
+
+  plats.forEach((pd) => {
+    const platform = k.add([
+      k.pos(pd.x, pd.y),
+      k.area({ shape: new k.Rect(k.vec2(0, 0), pd.w, PLATFORM_H) }),
+      k.body({ isStatic: true }),
+      oneWay(),
+      k.z(1),
+    ]);
+
+    const cols = Math.ceil(pd.w / TILE_SIZE);
+    for (let i = 0; i < cols; i++) {
+      let frame;
+      if (i === 0 && TILE_LEFT_CAP !== null) frame = TILE_LEFT_CAP;
+      else if (i === cols - 1 && TILE_RIGHT_CAP !== null) frame = TILE_RIGHT_CAP;
+      else frame = pickMid();
+      platform.add([k.sprite("tiles", { frame }), k.pos(i * TILE_SIZE, 0)]);
+    }
+  });
+}
+
+function buildWalls() { // VERTICAL WALL COLLIDERS FOR WALL-SLIDING/JUMPING. TAGGED "wall" SO COLLIDE HANDLERS BELOW (touchingWall / onCollideUpdate) FIND THEM WITHOUT CARING ABOUT GROUND/PLATFORMS
+  WALLS.forEach((w) => {
+    k.add([
+      k.pos(w.x, GROUND_Y - w.h),
+      k.rect(WALL_W, w.h),
+      k.color(...WALL_COLOR),
+      k.opacity(0.85),
+      k.outline(2, k.rgb(...WALL_OUTLINE_COLOR)),
+      k.area(),
+      k.body({ isStatic: true }),
+      k.z(2),
+      "wall",
+    ]);
+  });
+}
+
+function spawnPlayer(x = 100, y = GROUND_Y) {
+  if (player) k.destroy(player);
+  currentAnim = "idle";
+  isAttacking = false;
+  visualLift = 0;
+  touchingWall = null;
+  wallJumpLock = 0;
+  resetParticleState();
+  resetEffectState();
+  // CUSTOM HITBOX, DEFINED INLINE ALONGSIDE body() (NOT VIA .use() AFTERWARD)
+  // SO GROUNDED TRACKING STAYS CORRECTLY WIRED. TUNE LIVE WITH F1 OPEN:
+  // HB_W/HB_H ARE BOX SIZE, HB_OFFSET_X/Y SHIFT IT FROM THE FEET.
+  const HB_W = 70;
+  const HB_H = 130;
+  const HB_OFFSET_X = (-1) * HB_W; // INCREASE TO LIFT BOX OFF THE FEET IF IT DIPS BELOW GROUND
+  const HB_OFFSET_Y = (-1) * HB_H;
+
+  player = k.add([
+    squashBegin(),
+    liftBegin(),
+    hOffsetBegin(),
+    cloakLayer("cloakBack"),
+    k.sprite("player", { anim: "idle" }),
+    cloakLayer("cloakFront"),
+    hOffsetEnd(),
+    liftEnd(),
+    squashEnd(),
+    // DISSOLVE SHADER ON THE BODY SPRITE. WITH dissolveAmount AT 0 IT RETURNS THE
+    // PLAIN SPRITE PIXEL, SO IT'S SAFE TO LEAVE ATTACHED THE WHOLE TIME.
+    k.shader("dissolve", () => dissolveUniform("player", player ? player.frame : 0)),
+    k.pos(x, y),
+    k.anchor("bot"),
+    k.area({ shape: new k.Rect(k.vec2(-HB_W - HB_OFFSET_X, -HB_H - HB_OFFSET_Y), HB_W, HB_H) }),
+    k.body(),
+    k.scale(SCALE),
+    k.z(10),
+    "player",
+  ]);
+
+  spawnOneShotFX("spawnFx", x, y, { scale: SPAWN_FX_SCALE, z: SPAWN_FX_Z });
+  startSpawnDissolve();
+
+  return player;
+}
+
+function startRun() {
+  runIdx = 0;
+  runTimer = 0;
+  player.stop(); // hand frame control over from kaplay's anim system
+  player.frame = RUN_CYCLE[0].frame;
+  visualLift = RUN_CYCLE[0].lift;
+}
+
+function updateRun() {
+  runTimer += k.dt(); // WHILE-LOOP SO A LONG FRAME (LAG SPIKE) CAN'T DRIFT THE CYCLE
+  while (runTimer >= RUN_CYCLE[runIdx].hold) {
+    runTimer -= RUN_CYCLE[runIdx].hold;
+    runIdx = (runIdx + 1) % RUN_CYCLE.length;
+  }
+  player.frame = RUN_CYCLE[runIdx].frame;
+  visualLift = RUN_CYCLE[runIdx].lift;
+}
+
+function playAnim(name) {
+  if (!player || currentAnim === name) return;
+  currentAnim = name;
+  if (name === "run") {
+    startRun();
+    return;
+  }
+  visualLift = 0;
+  player.play(name);
+}
+
+function spawnSpell() {
+  if (!player) return;
+
+  const facingLeft = player.flipX;
+  const dir = facingLeft ? -1 : 1;
+  const halfWidth = (player.width * player.scale.x) / 2;  // PLAYER'S RENDERED WIDTH/HEIGHT COME FROM CURRENT FRAME * SCALE
+  const fullHeight = player.height * player.scale.y;
+  const handX = player.pos.x + dir * (halfWidth + SPELL_FORWARD_OFFSET); // ANCHOR IS "bot", SO pos.y IS FEET; HAND SITS ~1/3 DOWN FROM TOP OF FRAME
+  const handY = player.pos.y - fullHeight * (1 - HAND_HEIGHT_RATIO);
+
+  const spell = k.add([
+    k.sprite("spell", { anim: "cast" }),
+    k.pos(handX, handY),
+    k.anchor("center"),
+    k.scale(SPELL_SCALE * dir, SPELL_SCALE),
+    k.z(9),
+  ]);
+
+  spell.onAnimEnd(() => k.destroy(spell));
+
+  // TRACK LIVE SPELLS SO updateLighting() CAN GIVE EACH ONE A GLOW
+  activeSpells.push(spell);
+  spell.onDestroy(() => {
+    const i = activeSpells.indexOf(spell);
+    if (i !== -1) activeSpells.splice(i, 1);
+  });
+}
+
+function playAttack() {
+  if (!player || isAttacking) return;
+  isAttacking = true;
+  dashTimer = 0; // ATTACKING CANCELS A DASH IN PROGRESS
+  currentAnim = "attack";
+  visualLift = 0;
+  player.play("attack");
+  spawnSpell();
+
+  k.wait(ATTACK_HOLD_TIME, () => {
+    isAttacking = false;
+  });
+}
+
+// SAME CELL SIZE AS THE PLAYER FRAME, SO IT'S DRAWN WITH player's OWN
+// pos/anchor/scale (JUST MIRRORED THE SAME WAY VIA dir) AND LINES UP OVER
+// THE KICK POSE WITHOUT ANY PER-EFFECT OFFSET TUNING.
+function spawnKickSwoosh() {
+  if (!player) return;
+  const dir = player.flipX ? -1 : 1;
+  const swoosh = k.add([
+    k.sprite("swoosh", { anim: "play" }),
+    k.pos(player.pos.x + 20 * dir, player.pos.y + 20),
+    k.anchor("bot"),
+    k.scale(SCALE * dir * 1.3, SCALE * 1.3),
+    k.z(SWOOSH_Z),
+  ]);
+  swoosh.onAnimEnd(() => k.destroy(swoosh));
+}
+
+function playKickAttack() {
+  if (!player || isAttacking) return;
+  isAttacking = true;
+  dashTimer = 0; // ATTACKING CANCELS A DASH IN PROGRESS
+  currentAnim = "attackKick";
+  visualLift = 0;
+  player.play("attackKick"); // melee - no spell spawn
+  spawnKickSwoosh();
+  shakeCamera(KICK_SHAKE_DURATION, KICK_SHAKE_STRENGTH);
+  hitStop(HITSTOP_KICK); // THE KICK HAS NO ENEMY TO HIT YET, SO IT STANDS IN FOR "THE HIT CONNECTED"
+
+  k.wait(ATTACK_KICK_HOLD_TIME, () => {
+    isAttacking = false;
+  });
+}
+
+/* ---------- WALL CONTACT TRACKING ----------
+   touchingWall IS KEPT UP TO DATE BY THESE TWO COLLIDE HANDLERS RATHER THAN
+   COMPUTED INLINE IN THE MAIN UPDATE LOOP, SINCE onCollideUpdate ONLY FIRES
+   WHILE THE SHAPES OVERLAP (onCollideEnd CLEARS IT THE INSTANT THEY SEPARATE) -
+   A PLAIN DISTANCE/OVERLAP CHECK IN onUpdate WOULD DUPLICATE THAT SAME TEST BY HAND.
+
+   SIDE IS WORKED OUT FROM RESOLVED HITBOXES (worldArea().bbox(), SAME TRICK
+   oneWay() USES) RATHER THAN player.pos.x DIRECTLY. THE PLAYER'S HITBOX ISN'T
+   CENTERED ON THAT ANCHOR POINT, SO COMPARING RAW POSITIONS COULD CALL THE
+   WRONG SIDE AT THE MOMENT OF CONTACT (CHARACTER WOULD SLIDE FACING AWAY FROM
+   THE WALL IT'S ACTUALLY TOUCHING) - bbox() GIVES THE TRUE BOX, SO ITS CENTER
+   IS RELIABLE REGARDLESS OF HITBOX OFFSET. */
+k.onCollideUpdate("player", "wall", (p, w) => {
+  const pCenterX = p.worldArea().bbox().pos.x + p.worldArea().bbox().width / 2;
+  const wCenterX = w.worldArea().bbox().pos.x + w.worldArea().bbox().width / 2;
+  touchingWall = { dir: pCenterX < wCenterX ? 1 : -1 };
+});
+k.onCollideEnd("player", "wall", () => {
+  touchingWall = null;
+});
+
+k.onUpdate(() => {
+  if (!player) return;
+
+  if (isAttacking) return; // HOLD ATTACK POSE; MOVEMENT/ANIM RESUMES ONCE IT ENDS
+
+  let moving = false;
+
+  if (dashCooldown > 0) dashCooldown -= k.dt();
+
+  if (dashTimer > 0) { // DASH: FIXED-SPEED BURST IN THE LOCKED DIRECTION, OVERRIDING NORMAL INPUT
+    dashTimer -= k.dt();
+    player.move(dashDir * DASH_SPEED, 0);
+    player.flipX = dashDir === -1;
+    if (!player.isGrounded()) player.vel.y = 0; // AIR DASH HOVERS FLAT INSTEAD OF DROPPING
+    moving = true;
+  } else if (wallJumpLock > 0) {// OVERRIDE NORMAL INPUT MOMENTARILY SO WALL-JUMP PUSH CLEARS THE WALL INSTEAD OF BEING CANCELLED BY A STILL-HELD DIRECTION KEY.
+    wallJumpLock -= k.dt();
+    player.move(wallJumpPushDir * WALL_JUMP_PUSH, 0);
+    player.flipX = wallJumpPushDir === -1;
+    moving = true;
+  } else {
+    if (k.isKeyDown("left") || k.isKeyDown("a")) {
+      player.move(-MOVE_SPEED, 0);
+      player.flipX = true;
+      moving = true;
+    }
+    if (k.isKeyDown("right") || k.isKeyDown("d")) {
+      player.move(MOVE_SPEED, 0);
+      player.flipX = false;
+      moving = true;
+    }
+  }
+
+  if (player.vel.y > MAX_FALL_SPEED) player.vel.y = MAX_FALL_SPEED;
+
+  const grounded = player.isGrounded();
+  if (grounded || touchingWall) airDashReady = true; // REFILL THE ONE-PER-AIRTIME DASH
+
+  // WALL-SLIDE ONLY ENGAGES AIRBORNE, MID-LOCK-FREE, TOUCHING A WALL,
+  // AND HOLDING THE DIRECTION KEY PRESSING INTO IT (CLASSIC CLING - LET
+  // GO OF THE KEY AND YOU FALL INSTEAD OF STICKING).
+  let wallSliding = false;
+  if (!grounded && wallJumpLock <= 0 && touchingWall && player.vel.y >= 0) {
+    const pressingLeft = k.isKeyDown("left") || k.isKeyDown("a");
+    const pressingRight = k.isKeyDown("right") || k.isKeyDown("d");
+    const pressingIntoWall =
+      (touchingWall.dir === 1 && pressingRight) ||
+      (touchingWall.dir === -1 && pressingLeft);
+    wallSliding = pressingIntoWall;
+  }
+
+  if (wallSliding) {
+    if (player.vel.y > WALL_SLIDE_SPEED) player.vel.y = WALL_SLIDE_SPEED;
+    player.flipX = touchingWall.dir === 1; // FACE AWAY FROM THE WALL SO IT'S BEHIND YOU (dir 1 = wall is to the right, so flip to face left)
+    // WALL_SLIDE_FRAME'S ART IS OFF-CENTER (SEE WALL_SLIDE_VISUAL_OFFSET_X UP
+    // TOP), SO flipX ALONE LEAVES THE VISIBLE CHARACTER STRADDLING THE WALL.
+    // NUDGE THE DRAWN SPRITE BACK ONTO THE CORRECT FACE OF IT: RAW/UNFLIPPED
+    // ART (touching wall on its left) SHIFTS RIGHT TO RE-CENTER; MIRRORED
+    // ART (touching wall on its right) SHIFTS LEFT BY THE SAME AMOUNT.
+    wallSlideHOffset = player.flipX ? -WALL_SLIDE_VISUAL_OFFSET_X : WALL_SLIDE_VISUAL_OFFSET_X;
+    playAnim("wallSlide");
+  } else if (!grounded) {
+    wallSlideHOffset = 0;
+    playAnim(player.vel.y > FALL_VEL_THRESHOLD ? "fall" : "jump");
+  } else if (moving) {
+    wallSlideHOffset = 0;
+    playAnim("run");
+  } else {
+    wallSlideHOffset = 0;
+    playAnim("idle");
+  }
+  if (currentAnim === "run") updateRun();
+
+  const LEVEL_MIN_X = 0;
+  const LEVEL_MAX_X = 13500; 
+  if (player.pos.x < LEVEL_MIN_X) player.pos.x = LEVEL_MIN_X;
+  if (player.pos.x > LEVEL_MAX_X) player.pos.x = LEVEL_MAX_X;
+  if (player.pos.y > GROUND_Y + 300) spawnPlayer();
+
+  // (updateCamera() NOW RUNS IN THE ALWAYS-ON LOOP FURTHER DOWN. IT USED TO LIVE HERE,
+  // BUT THE isAttacking EARLY-RETURN ABOVE SKIPPED IT, SO THE KICK SHAKE DIDN'T START
+  // UNTIL THE KICK ENDED - EXACTLY WRONG FOR HIT-STOP.)
+});
+
+k.onKeyPress(["up", "w", "space"], () => {
+  if (!player || isAttacking) return;
+  if (player.isGrounded()) {
+    player.jump(JUMP_FORCE);
+    kickSquash(SQUASH_JUMP.x, SQUASH_JUMP.y);
+    kickCape(-1);
+  } else if (touchingWall) {
+    // LAUNCH POSE -> WALL SLIDE POSE -> LAUNCH POSE: THIS KICKS OFF THAT
+    // LAST LEG BY PUSHING UP AND AWAY FROM THE WALL WE WERE JUST CLINGING TO.
+    wallJumpPushDir = touchingWall.dir * -1; // away from the wall
+    player.vel.y = -WALL_JUMP_FORCE;
+    wallJumpLock = WALL_JUMP_LOCK_TIME;
+    touchingWall = null; // RELEASE CLING SO SLIDE LOGIC DOESN'T INSTANTLY RECLAIM IT
+    player.flipX = wallJumpPushDir === -1;
+    playAnim("jump");
+    kickSquash(SQUASH_JUMP.x, SQUASH_JUMP.y);
+    kickCape(-1);
+  }
+});
+
+k.onKeyPress(DASH_KEYS, () => {
+  tryDash();
+});
+
+k.onKeyPress("z", () => {
+  playAttack();
+});
+
+k.onKeyPress("x", () => {
+  playKickAttack();
+});
+
+k.onKeyPress("r", () => {
+  dissolveOutAndRespawn();
+});
+
+k.onKeyPress("v", () => { // CYCLE CAPE MODE: sprites -> spring + warp -> verlet cloth
+  capeMode = (capeMode + 1) % CAPE_MODES.length;
+  if (capeMode === 2) cloth.need = true; // RE-HANG THE CHAIN FROM THE COLLAR
+});
+
+k.onKeyPress("l", () => {
+  lightingOn = !lightingOn;
+  if (lightOverlay) lightOverlay.hidden = !lightingOn;
+});
+
+/* ---------- PARTICLES ----------
+   HAND-ROLLED ON PURPOSE: EVERY PARTICLE IS JUST AN ENTRY IN ONE ARRAY,
+   STEPPED IN A SINGLE onUpdate AND DRAWN BY ONE GAME OBJECT, SO HUNDREDS
+   OF MOTES COST ALMOST NOTHING (NO PER-PARTICLE GAME OBJECTS).
+
+   EMISSION RULES
+     running   - WHILE GROUNDED AND MOVING SIDEWAYS: MOTES SPAWN JUST BEHIND
+                 THE FEET AND DRIFT UP/BACK WHILE SHRINKING AND FADING
+     airborne  - AFTER AIR_TRAIL_DELAY IN THE AIR: MOTES SPAWN ALONG THE
+                 BODY, SO A JUMP LEAVES A SHIMMERING WAKE
+     landing   - THE FRAME YOU TOUCH DOWN AFTER FALLING FASTER THAN
+                 PUFF_MIN_IMPACT: NOT PART OF THIS ARRAY - SEE
+                 spawnLandingPuff() AND spawnOneShotFX(), WHICH PLAY THE
+                 puff.png SPRITE INSTEAD */
+const particles = [];
+const TRAIL_RGB = TRAIL_COLORS.map((c) => k.rgb(c));
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+let pWasGrounded = true;
+let pLastX = null;
+let pAirTime = 0;
+let pPeakFall = 0;   // FASTEST DOWNWARD SPEED THIS JUMP = LANDING IMPACT
+let pRunAcc = 0;
+let pAirAcc = 0;
+
+function resetParticleState() {
+  pWasGrounded = true;
+  pLastX = null;
+  pAirTime = 0;
+  pPeakFall = 0;
+  pRunAcc = 0;
+  pAirAcc = 0;
+}
+
+function addParticle(p) {
+  if (particles.length >= MAX_PARTICLES) particles.shift(); // drop oldest
+  particles.push(p);
+}
+
+function spawnTrail(x, y, vx, vy) {
+  addParticle({
+    kind: "trail",
+    x, y, vx, vy,
+    drag: 2.5,
+    gravity: 0,
+    age: 0,
+    life: rnd(TRAIL_LIFE[0], TRAIL_LIFE[1]),
+    r0: rnd(TRAIL_SIZE[0], TRAIL_SIZE[1]),
+    color: TRAIL_RGB[Math.floor(Math.random() * TRAIL_RGB.length)],
+  });
+}
+
+/* ---------- ONE-SHOT EFFECTS ----------
+   SHORT SPRITE ANIMATIONS THAT PLAY ONCE AND REMOVE THEMSELVES - USED FOR
+   LANDING PUFF AND SPAWN BURST. KEPT SEPARATE FROM THE HAND-ROLLED PARTICLE
+   ARRAY SINCE THERE'S ONLY EVER ONE OR TWO ON SCREEN AT A TIME, SO A REAL
+   (IF SHORT-LIVED) GAME OBJECT PER EFFECT IS SIMPLER THAN ADDING A SECOND
+   KIND TO THE PARTICLE SYSTEM. */
+function spawnOneShotFX(sprite, x, y, opts = {}) {
+  const fx = k.add([
+    k.sprite(sprite, { anim: "play" }),
+    k.pos(x, y),
+    k.anchor(opts.anchor ?? "bot"),
+    k.scale(opts.scale ?? 1),
+    k.z(opts.z ?? PARTICLE_Z),
+  ]);
+  fx.onAnimEnd(() => k.destroy(fx));
+  return fx;
+}
+
+function spawnLandingPuff(impact) {
+  const power = Math.min(1.5, impact / JUMP_FORCE); // ~1.0 = LANDING FROM FULL-HEIGHT JUMP
+  const t = Math.min(1, power);
+  const scale = PUFF_SCALE[0] + (PUFF_SCALE[1] - PUFF_SCALE[0]) * t;
+  spawnOneShotFX("puff", player.pos.x, player.pos.y, { scale });
+}
+
+function updateParticleEmitters(dt) {
+  if (!player) return;
+
+  const grounded = player.isGrounded();
+  // player.move() SHIFTS pos DIRECTLY (NO vel.x), SO MEASURE SIDEWAYS SPEED
+  // FROM HOW FAR WE ACTUALLY TRAVELLED THIS FRAME.
+  const dx = pLastX === null ? 0 : player.pos.x - pLastX;
+  pLastX = player.pos.x;
+  const hSpeed = dt > 0 ? Math.abs(dx) / dt : 0;
+  const dir = dx !== 0 ? Math.sign(dx) : (player.flipX ? -1 : 1); // direction of travel
+
+  if (grounded) {
+    if (!pWasGrounded) landSquash(pPeakFall);
+    if (!pWasGrounded && pPeakFall >= PUFF_MIN_IMPACT) spawnLandingPuff(pPeakFall);
+    pAirTime = 0;
+    pPeakFall = 0;
+    pAirAcc = 0;
+
+    if (hSpeed > TRAIL_MIN_SPEED) {
+      pRunAcc += dt;
+      while (pRunAcc >= RUN_TRAIL_INTERVAL) {
+        pRunAcc -= RUN_TRAIL_INTERVAL;
+        spawnTrail(
+          player.pos.x - dir * rnd(1, 5),
+          player.pos.y - RUN_TRAIL_HEIGHT + rnd(-20, 20),
+          -dir * rnd(10, 50),
+          -rnd(10, 45),
+        );
+      }
+    } else {
+      pRunAcc = 0;
+    }
+  } else {
+    pAirTime += dt;
+    pPeakFall = Math.max(pPeakFall, player.vel.y);
+    pRunAcc = 0;
+
+    if (pAirTime > AIR_TRAIL_DELAY) {
+      pAirAcc += dt;
+      while (pAirAcc >= AIR_TRAIL_INTERVAL) {
+        pAirAcc -= AIR_TRAIL_INTERVAL;
+        spawnTrail(
+          player.pos.x + rnd(-14, 14),
+          player.pos.y - rnd(15, 75),
+          hSpeed > TRAIL_MIN_SPEED ? -dir * rnd(0, 40) : rnd(-25, 25),
+          rnd(-25, 25),
+        );
+      }
+    }
+  }
+
+  pWasGrounded = grounded;
+}
+
+function stepParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.age += dt;
+    if (p.age >= p.life) {
+      particles.splice(i, 1);
+      continue;
+    }
+    const drag = Math.exp(-p.drag * dt); // frame-rate independent friction
+    p.vx *= drag;
+    p.vy = p.vy * drag + p.gravity * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const t = p.age / p.life; // 0 -> 1 OVER PARTICLE'S LIFE
+    const pos = k.vec2(p.x, p.y);
+    const fade = Math.pow(1 - t, 1.5);
+    const r = p.r0 * (1 - 0.7 * t);
+    if (TRAIL_GLOW > 0) {
+      k.drawCircle({ pos, radius: r * TRAIL_GLOW, color: p.color, opacity: 0.18 * fade });
+    }
+    k.drawCircle({ pos, radius: r, color: p.color, opacity: 0.95 * fade });
+  }
+}
+
+// SEPARATE UPDATE LOOP (LIKE THE DEBUG READOUT) SO PARTICLES KEEP FLOWING
+// EVEN DURING THE isAttacking EARLY-RETURN IN MAIN onUpdate.
+k.onUpdate(() => {
+  const dt = k.dt();
+  updateCloakAnim(dt);
+  updateParticleEmitters(dt);
+  stepParticles(dt);
+  updateSquash(dt);
+  updateCape(dt);
+  stepCloth(dt);
+  emitGhosts(dt);
+  stepGhosts(dt);
+  updateCamera();   // BEFORE updateLighting(), SO LIGHTS USE THIS FRAME'S FINAL CAMERA
+  updateLighting();
+});
+
+/* ---------- STARTER-PACK EFFECTS: RUNTIME ----------
+   EVERYTHING BELOW SUPPORTS THE FX FLAGS UP TOP. NOTHING HERE TOUCHES THE
+   PLAYER'S pos / vel / HITBOX EXCEPT THE DASH IN THE MAIN LOOP ABOVE. */
+
+// COLORS PRE-BUILT ONCE (k EXISTS BY NOW). k.rgb() KEEPS 0-255; THE SHADERS DIVIDE BY 255.
+const GHOST_RGB = GHOST_COLORS.map((c) => k.rgb(c));
+const EDGE_INNER_RGB = k.rgb(DISSOLVE_EDGE_INNER);
+const EDGE_OUTER_RGB = k.rgb(DISSOLVE_EDGE_OUTER);
+const AMBIENT_RGB = k.rgb(LIGHT_AMBIENT_COLOR);
+const LIGHT_PLAYER_RGB = k.rgb(LIGHT_PLAYER.color);
+const LIGHT_SPELL_RGB = k.rgb(LIGHT_SPELL.color);
+
+/* ----- 1. SQUASH & STRETCH -----
+   A DAMPED SPRING PER AXIS. kickSquash() SNAPS THE SCALE TO A POSE AND THE
+   SPRING RELAXES IT BACK TO THE TARGET (1,1 - OR A SPEED-BASED STRETCH IN THE AIR). */
+function kickSquash(x, y) {
+  if (!FX.squash) return;
+  squash.x = x;
+  squash.y = y;
+  squash.vx = 0;
+  squash.vy = 0;
+}
+
+function landSquash(impact) {
+  if (impact < SQUASH_LAND_MIN_IMPACT) return;
+  const t = Math.min(1, (impact - SQUASH_LAND_MIN_IMPACT) / (SQUASH_LAND_FULL_IMPACT - SQUASH_LAND_MIN_IMPACT));
+  kickCape(-t);
+  kickSquash(
+    1 + (SQUASH_LAND_MAX.x - 1) * t,
+    1 + (SQUASH_LAND_MAX.y - 1) * t,
+  );
+}
+
+function updateSquash(dt) {
+  if (!FX.squash || !player) {
+    squash.x = squash.y = 1;
+    squash.vx = squash.vy = 0;
+    return;
+  }
+  let tx = 1;
+  let ty = 1;
+  if (dashTimer > 0) { // HOLD THE LONG-LOW DASH POSE FOR THE WHOLE DASH
+    tx = SQUASH_DASH.x;
+    ty = SQUASH_DASH.y;
+  } else if (!player.isGrounded() && currentAnim !== "wallSlide") { // STRETCH WITH VERTICAL SPEED
+    const s = Math.min(1, Math.abs(player.vel.y) / SQUASH_AIR_STRETCH_VEL);
+    ty = 1 + SQUASH_AIR_STRETCH * s;
+    tx = 1 - SQUASH_AIR_STRETCH * s * 0.6; // ROUGHLY KEEPS THE AREA CONSTANT
+  }
+  const h = Math.min(dt, 1 / 30); // CLAMP SO A LAG SPIKE CAN'T EXPLODE THE SPRING
+  squash.vx += (-SQUASH_STIFFNESS * (squash.x - tx) - SQUASH_DAMPING * squash.vx) * h;
+  squash.vy += (-SQUASH_STIFFNESS * (squash.y - ty) - SQUASH_DAMPING * squash.vy) * h;
+  squash.x += squash.vx * h;
+  squash.y += squash.vy * h;
+}
+
+/* ----- 2. HIT-STOP -----
+   k.debug.timeScale SCALES k.dt() FOR EVERYTHING (PHYSICS, ANIMS, TWEENS,
+   k.wait TIMERS), SO SETTING IT TO 0 FREEZES THE WHOLE GAME. THE RESTORE USES
+   A REAL setTimeout BECAUSE ANY KAPLAY TIMER WOULD BE FROZEN TOO. THE CAMERA
+   SHAKE STILL JITTERS DURING THE FREEZE (updateCamera STAYS ON), WHICH SELLS IT. */
+let hitStopTimeout = null;
+function hitStop(seconds) {
+  if (!FX.hitStop) return;
+  k.debug.timeScale = 0;
+  clearTimeout(hitStopTimeout);
+  hitStopTimeout = setTimeout(() => {
+    k.debug.timeScale = 1;
+  }, seconds * 1000);
+}
+
+/* ----- 3. DASH + AFTERIMAGES ----- */
+function tryDash() {
+  if (!FX.dash || !player || isAttacking) return;
+  if (dashTimer > 0 || dashCooldown > 0 || wallJumpLock > 0) return;
+  const grounded = player.isGrounded();
+  if (!grounded && !airDashReady) return;
+  if (!grounded) airDashReady = false;
+
+  dashDir = player.flipX ? -1 : 1;
+  dashTimer = DASH_TIME;
+  dashCooldown = DASH_COOLDOWN;
+  ghostAcc = GHOST_INTERVAL; // FIRST GHOST ON THE VERY NEXT FRAME
+  kickSquash(SQUASH_DASH.x, SQUASH_DASH.y);
+  kickCape(1);
+  shakeCamera(0.08, 4);
+}
+
+function emitGhosts(dt) {
+  if (!FX.dash || !player || dashTimer <= 0) return;
+  ghostAcc += dt;
+  while (ghostAcc >= GHOST_INTERVAL) {
+    ghostAcc -= GHOST_INTERVAL;
+    ghosts.push({
+      // SNAPSHOT OF EXACTLY WHAT THE PLAYER LOOKS LIKE RIGHT NOW. THE LIFT / SIDEWAYS
+      // OFFSET / SQUASH ARE LOCAL-SPACE (SO THEY GET SCALED BY SCALE), MATCHING WHAT
+      // THE squashBegin/liftBegin/hOffsetBegin COMPONENTS DO TO THE REAL SPRITE.
+      x: player.pos.x + wallSlideHOffset * SCALE * squash.x,
+      y: player.pos.y - visualLift * SCALE * squash.y,
+      sx: squash.x,
+      sy: squash.y,
+      frame: player.frame,
+      flip: player.flipX,
+      age: 0,
+      color: GHOST_RGB[ghostColorIdx++ % GHOST_RGB.length],
+    });
+  }
+}
+
+function stepGhosts(dt) {
+  for (let i = ghosts.length - 1; i >= 0; i--) {
+    ghosts[i].age += dt;
+    if (ghosts[i].age >= GHOST_LIFE) ghosts.splice(i, 1);
+  }
+}
+
+function drawGhosts() {
+  for (const g of ghosts) {
+    const t = g.age / GHOST_LIFE; // 0 -> 1 OVER THE GHOST'S LIFE
+    const shrink = 1 - 0.12 * t;  // SLIGHT SHRINK SO THE TRAIL TAPERS
+    k.drawSprite({
+      sprite: "player",
+      frame: g.frame,
+      pos: k.vec2(g.x, g.y),
+      anchor: "bot",
+      scale: k.vec2(SCALE * g.sx * shrink, SCALE * g.sy * shrink),
+      flipX: g.flip,
+      shader: "silhouette",
+      uniform: { u_color: g.color, u_alpha: GHOST_ALPHA * Math.pow(1 - t, 1.5) },
+    });
+  }
+}
+
+/* ----- 4. DISSOLVE -----
+   dissolveAmount 1 -> 0 MATERIALIZES, 0 -> 1 DISSOLVES AWAY. BOTH THE BODY (THE
+   shader() COMPONENT ON THE PLAYER) AND THE CAPE (cloakLayer) FEED THE SAME SHADER
+   THROUGH dissolveUniform(). */
+function dissolveUniform(spriteName, frame) {
+  const data = k.getSprite(spriteName)?.data;
+  const q = data?.frames?.[frame];
+  return {
+    u_amount: FX.dissolve ? dissolveAmount : 0,
+    u_origin: q ? k.vec2(q.x, q.y) : k.vec2(0, 0),            // THIS FRAME'S TOP-LEFT IN THE TEXTURE (0-1)
+    u_texSize: data ? k.vec2(data.tex.width, data.tex.height) : k.vec2(1, 1), // TEXTURE SIZE IN PX
+    u_cell: DISSOLVE_CELL,
+    u_edge: DISSOLVE_EDGE,
+    u_edgeA: EDGE_INNER_RGB,
+    u_edgeB: EDGE_OUTER_RGB,
+  };
+}
+
+let dissolvingOut = false;
+function startSpawnDissolve() {
+  if (dissolveTween) dissolveTween.cancel();
+  dissolvingOut = false;
+  if (!FX.dissolve) {
+    dissolveAmount = 0;
+    return;
+  }
+  dissolveAmount = 1;
+  dissolveTween = k.tween(1, 0, DISSOLVE_SPAWN_TIME, (v) => (dissolveAmount = v), k.easings.easeOutQuad);
+}
+
+function dissolveOutAndRespawn() {
+  if (!player || dissolvingOut) return;
+  if (!FX.dissolve) {
+    spawnPlayer();
+    return;
+  }
+  dissolvingOut = true;
+  if (dissolveTween) dissolveTween.cancel();
+  dissolveTween = k.tween(dissolveAmount, 1, DISSOLVE_OUT_TIME, (v) => (dissolveAmount = v), k.easings.easeInQuad);
+  dissolveTween.onEnd(() => {
+    spawnPlayer(); // spawnPlayer() -> startSpawnDissolve() FADES THE NEW BODY BACK IN
+  });
+}
+
+// CALLED BY spawnPlayer(): CLEARS PER-LIFE STATE SO A RESPAWN STARTS CLEAN
+function resetEffectState() {
+  squash.x = squash.y = 1;
+  squash.vx = squash.vy = 0;
+  dashTimer = 0;
+  dashCooldown = 0;
+  airDashReady = true;
+  ghosts.length = 0;
+  capeSpring.a = capeSpring.v = 0;
+  capeHVel = 0;
+  capePrevX = null;
+  cloth.need = true;
+}
+
+/* ----- 5. FAKE LIGHTING -----
+   LAMPS ARE DRAWN BY ONE LAYER (NO PER-LAMP OBJECTS). THE OVERLAY'S SHADER WANTS
+   LIGHT POSITIONS AS (OFFSET FROM SCREEN CENTER) / (SCREEN HEIGHT), SO THE
+   FALLOFF STAYS CIRCULAR AT ANY WINDOW SHAPE. */
+const LAMPS = Array.from({ length: LAMP_COUNT }, (_, i) => ({
+  x: LAMP_FIRST_X + i * LAMP_SPACING,
+  rgb: k.rgb(LAMP_COLORS[i % LAMP_COLORS.length]),
+  phase: i * 1.7,
+}));
+
+// SLOW SWELL + TWO FASTER WOBBLES = A LIVING NEON FLICKER, NEVER JUST A SINE WAVE
+function lampFlicker(lamp) {
+  const t = k.time();
+  return 1 + 0.04 * Math.sin(t * 2.1 + lamp.phase)
+           + 0.035 * Math.sin(t * 11 + lamp.phase * 2.3)
+           + 0.02 * Math.sin(t * 27 + lamp.phase * 5.1);
+}
+
+function drawLamps() {
+  const cam = k.getCamPos();
+  const half = k.width() / 2 + 100;
+  const orbY = GROUND_Y - LAMP_POLE_H;
+  for (const lamp of LAMPS) {
+    if (Math.abs(lamp.x - cam.x) > half) continue; // OFF-SCREEN
+    const f = lampFlicker(lamp);
+    const pos = k.vec2(lamp.x, orbY);
+    k.drawRect({ pos: k.vec2(lamp.x - 3, orbY), width: 6, height: LAMP_POLE_H, color: k.rgb("#37025a") });
+    k.drawCircle({ pos, radius: 34 * f, color: lamp.rgb, opacity: 0.10 });
+    k.drawCircle({ pos, radius: 20 * f, color: lamp.rgb, opacity: 0.22 });
+    k.drawCircle({ pos, radius: 11 * f, color: lamp.rgb, opacity: 0.95 });
+    k.drawCircle({ pos, radius: 5, color: k.rgb("#ffffff"), opacity: 0.9 });
+  }
+}
+
+// ONE VEC2 + FLOAT + COLOR UNIFORM PER LIGHT SLOT (NAMES u_p0/u_r0/u_c0 ...)
+const lightUniform = {
+  u_aspect: 1,
+  u_ambient: LIGHT_AMBIENT,
+  u_glow: LIGHT_GLOW,
+  u_ambCol: AMBIENT_RGB,
+};
+for (let i = 0; i < MAX_LIGHTS; i++) {
+  lightUniform[`u_p${i}`] = k.vec2(0, 0);
+  lightUniform[`u_r${i}`] = 0;
+  lightUniform[`u_c${i}`] = AMBIENT_RGB;
+}
+
+let lightOverlay = null;
+
+function updateLighting() {
+  if (!lightOverlay || !lightingOn || !player) return;
+  const W = k.width();
+  const H = k.height();
+  const cam = k.getCamPos();
+  const lights = []; // { x, y } IN WORLD PX, r IN PX, rgb
+
+  lights.push({
+    x: player.pos.x,
+    y: player.pos.y - LIGHT_PLAYER.height,
+    r: LIGHT_PLAYER.radius * (1 + 0.015 * Math.sin(k.time() * 3)),
+    rgb: LIGHT_PLAYER_RGB,
+  });
+
+  for (let i = 0; i < Math.min(2, activeSpells.length); i++) {
+    const s = activeSpells[i];
+    lights.push({ x: s.pos.x, y: s.pos.y, r: LIGHT_SPELL.radius * (1 + 0.06 * Math.sin(k.time() * 40)), rgb: LIGHT_SPELL_RGB });
+  }
+
+  // NEAREST ON-SCREEN LAMPS FILL THE REMAINING SLOTS
+  const orbY = GROUND_Y - LAMP_POLE_H;
+  const room = MAX_LIGHTS - lights.length;
+  const near = LAMPS
+    .filter((l) => Math.abs(l.x - cam.x) < W / 2 + LAMP_RADIUS)
+    .sort((a, b) => Math.abs(a.x - cam.x) - Math.abs(b.x - cam.x))
+    .slice(0, room);
+  for (const l of near) lights.push({ x: l.x, y: orbY, r: LAMP_RADIUS * lampFlicker(l), rgb: l.rgb });
+
+  lightUniform.u_aspect = W / H;
+  for (let i = 0; i < MAX_LIGHTS; i++) {
+    const L = lights[i];
+    if (!L) {
+      lightUniform[`u_r${i}`] = 0;
+      continue;
+    }
+    // WORLD -> OFFSET FROM SCREEN CENTER, IN SCREEN HEIGHTS. THE CAMERA CENTERS ON
+    // cam AND WE NEVER ZOOM OR ROTATE IT, SO IT'S JUST A SUBTRACTION.
+    lightUniform[`u_p${i}`] = k.vec2((L.x - cam.x) / H, (L.y - cam.y) / H);
+    lightUniform[`u_r${i}`] = L.r / H;
+    lightUniform[`u_c${i}`] = L.rgb;
+  }
+}
+
+/* ---------- SHADERS ----------
+   kaplay SHADER FORMAT: WE SUPPLY ONLY THE frag() FUNCTION (PLUS ANY HELPERS /
+   uniform DECLARATIONS); def_frag() GIVES THE NORMAL TEXTURED PIXEL. COLOR
+   UNIFORMS ARRIVE AS 0-255, HENCE THE "/ 255.0". */
+const DISSOLVE_FRAG = `
+uniform float u_amount;
+uniform vec2 u_origin;
+uniform vec2 u_texSize;
+uniform float u_cell;
+uniform float u_edge;
+uniform vec3 u_edgeA;
+uniform vec3 u_edgeB;
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+// SMOOTH VALUE NOISE: RANDOM VALUES AT INTEGER GRID POINTS, BLENDED BETWEEN THEM
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+vec4 frag(vec2 pos, vec2 uv, vec4 color, sampler2D tex) {
+  vec4 base = def_frag();
+  if (u_amount <= 0.0) return base;
+
+  // PIXEL POSITION WITHIN THIS FRAME (NOT THE WHOLE SHEET), SO THE PATTERN STAYS PUT ON THE ART
+  vec2 px = (uv - u_origin) * u_texSize;
+  float n = vnoise(px / u_cell) * 0.65 + vnoise(px / (u_cell * 0.4) + 17.0) * 0.35;
+  n = clamp((n - 0.18) / 0.64, 0.0, 1.0); // STRETCH THE NOISE TO THE FULL 0..1 RANGE
+
+  // THRESHOLD SWEEPS FROM BELOW THE NOISE RANGE (NOTHING GONE) TO ABOVE IT (EVERYTHING GONE)
+  float thr = u_amount * (1.0 + u_edge) - u_edge;
+  if (n < thr) return vec4(0.0);
+
+  float band = (n - thr) / u_edge; // 0 AT THE BURN FRONT -> 1 WHERE THE ART IS UNTOUCHED
+  if (band < 1.0 && base.a > 0.0) {
+    // PREMULTIPLIED OUTPUT (kaplay BLENDS WITH src = ONE), SO SCALE THE GLOW BY ALPHA
+    return vec4(mix(u_edgeA, u_edgeB, band) / 255.0 * base.a, base.a);
+  }
+  return base;
+}
+`;
+
+const SILHOUETTE_FRAG = `
+uniform vec3 u_color;
+uniform float u_alpha;
+
+vec4 frag(vec2 pos, vec2 uv, vec4 color, sampler2D tex) {
+  vec4 c = def_frag();
+  float a = c.a * u_alpha;
+  return vec4(u_color / 255.0 * a, a); // PREMULTIPLIED: kaplay BLENDS WITH src = ONE
+}
+`;
+
+// BUILT FROM MAX_LIGHTS SO THE UNIFORM LIST AND THE SUM STAY IN SYNC
+function buildLightingFrag() {
+  const decls = [];
+  const calls = [];
+  for (let i = 0; i < MAX_LIGHTS; i++) {
+    decls.push(`uniform vec2 u_p${i};\nuniform float u_r${i};\nuniform vec3 u_c${i};`);
+    calls.push(`accumulate(p, u_p${i}, u_r${i}, u_c${i}, lit, glow, wsum);`);
+  }
+  return `
+uniform float u_aspect;
+uniform float u_ambient;
+uniform float u_glow;
+uniform vec3 u_ambCol;
+${decls.join("\n")}
+
+void accumulate(vec2 p, vec2 lp, float lr, vec3 lc, inout float lit, inout vec3 glow, inout float wsum) {
+  if (lr <= 0.0) return;
+  float f = 1.0 - clamp(distance(p, lp) / lr, 0.0, 1.0);
+  f = f * f * (3.0 - 2.0 * f);             // SMOOTHSTEP FALLOFF: SOFT EDGE, BRIGHT CORE
+  lit = 1.0 - (1.0 - lit) * (1.0 - f);     // "SOFT OR" SO OVERLAPPING LIGHTS DON'T BLOW OUT
+  glow += lc * f;
+  wsum += f;
+}
+
+vec4 frag(vec2 pos, vec2 uv, vec4 color, sampler2D tex) {
+  // kaplay HANDS frag() pos AS NORMALIZED SCREEN COORDS (-1..1, y UP). CONVERT TO
+  // "SCREEN HEIGHTS" FROM SCREEN CENTER (y DOWN) SO LIGHTS STAY ROUND AT ANY WINDOW SHAPE.
+  vec2 p = vec2(pos.x * 0.5 * u_aspect, -pos.y * 0.5);
+  float lit = 0.0;
+  float wsum = 0.0;
+  vec3 glow = vec3(0.0);
+  ${calls.join("\n  ")}
+
+  float dark = u_ambient * (1.0 - lit);     // HOW OPAQUE THE NIGHT IS HERE
+  float tintA = u_glow * lit;               // FAINT COLOR WASH WHERE LIGHT LANDS
+  vec3 tint = glow / max(wsum, 0.0001);     // AVERAGE COLOR OF THE LIGHTS HERE
+  float a = dark + tintA * (1.0 - dark);
+  // kaplay BLENDS WITH PREMULTIPLIED ALPHA (src = ONE, dst = 1 - srcAlpha), SO THE
+  // COLOR RETURNED MUST ALREADY BE MULTIPLIED BY ITS ALPHA.
+  vec3 rgbPremul = u_ambCol * dark + tint * tintA * (1.0 - dark);
+  return vec4(rgbPremul / 255.0, a);
+}
+`;
+}
+
+async function loadShaders() {
+  await k.loadShader("dissolve", null, DISSOLVE_FRAG);
+  await k.loadShader("silhouette", null, SILHOUETTE_FRAG);
+  await k.loadShader("lighting", null, buildLightingFrag());
+}
+
+/* ---------- CAPE PHYSICS: RUNTIME ----------
+   SEE THE CAPE PHYSICS CONFIG UP TOP FOR WHAT EACH MODE DOES. */
+let capeMode = CAPE_START_MODE;
+const capeSpring = { a: 0, v: 0 };   // mode 1: extra swing angle (deg) + its angular velocity
+let capeHVel = 0;                    // smoothed signed horizontal speed (px/s, + = right)
+let capePrevX = null;                // last frame's player x, for measuring that speed
+let capeSpeed = 0;                   // |horizontal speed| / MOVE_SPEED (a dash pushes it past 1)
+let capeWavePhase = 0;               // mode 1: traveling-wave phase (accumulated, so speed changes never jump it)
+let capeDirSmooth = 1;               // facing eased to -1..1, so the cloth root slides across the back on a turn
+const CAPE_RGB = CAPE_COLORS.map((c) => k.rgb(c));
+const CAPE_EDGE_RGB = k.rgb(CAPE_EDGE);
+const CAPE_GLOW_RGB = k.rgb(CAPE_EDGE_GLOW);
+
+function kickCape(n) { // n: -1..1 - NEGATIVE DROOPS THE TAIL (JUMP/LAND), POSITIVE FLINGS IT BACK (DASH)
+  capeSpring.v += CAPE_SPRING_KICK * n;
+}
+
+function updateCape(dt) {
+  if (!player || dt <= 0) return; // dt IS 0 DURING HIT-STOP - NOTHING SHOULD MOVE
+  const dir = player.flipX ? -1 : 1;
+
+  // player.move() SHIFTS pos DIRECTLY (NO vel.x), SO MEASURE SPEED FROM DISTANCE TRAVELLED
+  const dx = capePrevX === null ? 0 : player.pos.x - capePrevX;
+  capePrevX = player.pos.x;
+  const hv = Math.max(-3000, Math.min(3000, dx / dt));
+  capeHVel += (hv - capeHVel) * Math.min(1, dt * 14);
+  capeSpeed = Math.abs(capeHVel) / MOVE_SPEED;
+  capeDirSmooth += (dir - capeDirSmooth) * Math.min(1, dt * 18);
+
+  // MODE 1 SPRING: THE TARGET SWING COMES FROM HOW FAST WE'RE MOVING (FORWARD = SWING BACK)
+  // AND FALLING (FALLING = LIFT); THE SPRING THEN CHASES IT, OVERSHOOTING AND SETTLING.
+  const rel = Math.max(-1.6, Math.min(1.6, (capeHVel * dir) / MOVE_SPEED));
+  const fall = Math.max(-1, Math.min(1, player.vel.y / 1000));
+  const target = CAPE_SPRING_RUN_ANGLE * rel + CAPE_SPRING_FALL_ANGLE * fall;
+  const h = Math.min(dt, 1 / 30); // CLAMP SO A LAG SPIKE CAN'T EXPLODE THE SPRING
+  capeSpring.v += (-CAPE_SPRING_STIFFNESS * (capeSpring.a - target) - CAPE_SPRING_DAMPING * capeSpring.v) * h;
+  capeSpring.a += capeSpring.v * h;
+
+  const t = Math.min(1, capeSpeed);
+  const freq = CAPE_WARP_FREQ[0] + (CAPE_WARP_FREQ[1] - CAPE_WARP_FREQ[0]) * t;
+  capeWavePhase += dt * freq * Math.PI * 2;
+}
+
+/* ----- MODE 1: STRIP-WARPED SPRITE -----
+   DRAWS ONE CLOAK LAYER AS N VERTICAL SLICES OF ITS ART. EACH SLICE IS NUDGED UP/DOWN
+   BY A SINE WAVE THAT GROWS FROM THE ATTACH POINT (NO MOVEMENT) TO THE FAR TIP (MOST).
+   THE WHOLE THING SITS INSIDE A TRANSFORM (translate -> mirror -> rotate) SO FACING
+   LEFT IS JUST A MIRROR, AND THE SPRING ANGLE IS ADDED TO THE POSE'S OWN ROTATION. */
+function drawCloakWarped(which, frame, pos, rotDeg, dir) {
+  if (typeof CLOAK_ANCHOR === "string") return false;
+  const data = k.getSprite(which)?.data;
+  const q = data?.frames?.[frame];
+  if (!data || !q) return false;
+
+  const W = data.width;   // ONE FRAME'S SIZE IN PX
+  const H = data.height;
+  const ax = ((CLOAK_ANCHOR.x + 1) / 2) * W; // ATTACH POINT INSIDE THE ART (PX FROM ITS TOP-LEFT)
+  const ay = ((CLOAK_ANCHOR.y + 1) / 2) * H;
+  const n = CAPE_WARP_STRIPS;
+  const sw = W / n;
+  const t = Math.min(1, capeSpeed);
+  const amp = CAPE_WARP_AMP[0] + (CAPE_WARP_AMP[1] - CAPE_WARP_AMP[0]) * t;
+  const fx = FX.dissolve && dissolveAmount > 0
+    ? { shader: "dissolve", uniform: dissolveUniform(which, frame) }
+    : {};
+
+  k.pushTransform();
+  k.pushTranslate(pos.x, pos.y);
+  k.pushScale(dir * CLOAK_SCALE, CLOAK_SCALE);
+  k.pushRotate(rotDeg + capeSpring.a);
+  for (let j = 0; j < n; j++) {
+    const xL = j * sw;
+    const s = Math.max(0, Math.min(1, (ax - (xL + sw / 2)) / ax)); // 0 AT THE ATTACH POINT -> 1 AT THE FAR EDGE
+    const dy = amp * Math.pow(s, 1.3) * Math.sin(capeWavePhase - s * CAPE_WARP_PHASE);
+    k.drawUVQuad({
+      tex: data.tex,
+      quad: k.quad(q.x + (q.w * j) / n, q.y, q.w / n, q.h),
+      pos: k.vec2(xL - ax, -ay + dy),
+      width: sw + 0.75, // TINY OVERLAP SO NO SEAMS SHOW BETWEEN SLICES
+      height: H,
+      ...fx,
+    });
+  }
+  k.popTransform();
+  return true;
+}
+
+/* ----- MODE 2: VERLET CLOTH -----
+   EVERY POINT STORES WHERE IT IS (x,y) AND WHERE IT WAS (px,py) - VELOCITY IS JUST THE
+   DIFFERENCE, SO THERE IS NO VELOCITY VARIABLE TO KEEP IN SYNC. A STEP IS:
+     1. MOVE EACH POINT BY ITS OWN MOMENTUM (MINUS AIR DRAG) PLUS GRAVITY / TURBULENCE
+     2. SQUEEZE NEIGHBOURS BACK TO THEIR REST DISTANCE (REPEATED A FEW TIMES)
+   THE HEAD POINT IS PINNED TO THE COLLAR, SO WHEN THE PLAYER MOVES THE REST OF THE CHAIN
+   GETS DRAGGED ALONG AND LAGS BEHIND - THAT LAG *IS* THE FLOWING-CLOTH LOOK. */
+const cloth = { p: [], need: true, t: 0, acc: 0, lastRoot: null };
+
+function clothRoot() { // WORLD POSITION OF THE COLLAR PIN (SAME ATTACH POINT AS THE SPRITE CLOAK)
+  const pose = CLOAK_POSE[currentAnim] ?? CLOAK_POSE.run;
+  const sx = SCALE * squash.x;
+  const sy = SCALE * squash.y;
+  return {
+    x: player.pos.x + (pose.x + CAPE_CLOTH.rootOffset.x) * capeDirSmooth * sx,
+    y: player.pos.y + (pose.y + CAPE_CLOTH.rootOffset.y - visualLift) * sy,
+  };
+}
+
+function resetCloth() { // HANG THE CHAIN STRAIGHT DOWN-AND-BACK FROM THE COLLAR (SPAWN / MODE SWITCH)
+  const C = CAPE_CLOTH;
+  const r = clothRoot();
+  const dir = player.flipX ? -1 : 1;
+  cloth.p.length = 0;
+  for (let i = 0; i < C.segments; i++) {
+    const x = r.x - dir * i * C.segLen * 0.35;
+    const y = r.y + i * C.segLen * 0.93;
+    cloth.p.push({ x, y, px: x, py: y });
+  }
+  cloth.need = false;
+  cloth.acc = 0;
+  cloth.lastRoot = r;
+}
+
+// PULL TWO POINTS TOWARD (OR AWAY FROM) EACH OTHER UNTIL THEY'RE `rest` APART. wA/wB = HOW MUCH EACH
+// ONE MOVES (0 = PINNED), stiff = FRACTION OF THE ERROR FIXED THIS PASS.
+function clothLink(a, b, rest, wA, wB, stiff) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const d = Math.hypot(dx, dy) || 0.0001;
+  const w = wA + wB;
+  if (w === 0) return;
+  const diff = ((d - rest) / d) * stiff;
+  a.x += dx * diff * (wA / w);
+  a.y += dy * diff * (wA / w);
+  b.x -= dx * diff * (wB / w);
+  b.y -= dy * diff * (wB / w);
+}
+
+function stepCloth(dt) {
+  if (capeMode !== 2 || !player || dt <= 0) return;
+  if (cloth.need) resetCloth();
+  const C = CAPE_CLOTH;
+  cloth.acc = Math.min(cloth.acc + dt, C.maxSteps * C.step);
+  const steps = Math.floor(cloth.acc / C.step);
+  if (steps === 0) return;
+  cloth.acc -= steps * C.step;
+
+  const P = cloth.p;
+  const n = P.length;
+  const rootNow = clothRoot();
+  const rootPrev = cloth.lastRoot ?? rootNow;
+  const h = C.step;
+  const damp = Math.max(0, 1 - C.drag * h);
+  const run = Math.min(1, capeSpeed);
+
+  for (let st = 1; st <= steps; st++) {
+    // SLIDE THE PIN ALONG THE FRAME'S TRAVEL, STEP BY STEP, SO FAST MOVES DON'T JERK THE CHAIN
+    const f = st / steps;
+    P[0].x = rootPrev.x + (rootNow.x - rootPrev.x) * f;
+    P[0].y = rootPrev.y + (rootNow.y - rootPrev.y) * f;
+    P[0].px = P[0].x;
+    P[0].py = P[0].y;
+
+    for (let i = 1; i < n; i++) {
+      const q = P[i];
+      const vx = (q.x - q.px) * damp;
+      const vy = (q.y - q.py) * damp;
+      q.px = q.x;
+      q.py = q.y;
+      const tip = i / (n - 1);
+      const fl = C.flutter * run * tip; // TURBULENCE GROWS TOWARD THE HEM AND WITH SPEED
+      const ax = Math.sin(cloth.t * 9 + i * 0.8) * fl - capeDirSmooth * C.backBias * tip;
+      const ay = C.gravity * (1 - C.lift * run) + Math.cos(cloth.t * 7.3 + i * 1.1) * fl;
+      q.x += vx + ax * h * h;
+      q.y += vy + ay * h * h;
+    }
+
+    for (let it = 0; it < C.iterations; it++) {
+      for (let i = 0; i < n - 1; i++) clothLink(P[i], P[i + 1], C.segLen, i === 0 ? 0 : 1, 1, 1);
+      for (let i = 0; i < n - 2; i++) clothLink(P[i], P[i + 2], C.segLen * 2 * 0.97, i === 0 ? 0 : 1, 1, C.bend);
+    }
+    for (let i = 1; i < n; i++) if (P[i].y > GROUND_Y - 2) P[i].y = GROUND_Y - 2; // DON'T SINK INTO THE FLOOR
+    cloth.t += h;
+  }
+  cloth.lastRoot = rootNow;
+}
+
+function drawCloth() {
+  if (capeMode !== 2 || !player || cloth.need || cloth.p.length < 3) return;
+  if (currentAnim === "idle" || currentAnim === "attackKick" || currentAnim === "wallSlide") return; // CAPE IS BAKED INTO THOSE FRAMES
+  const alpha = FX.dissolve ? 1 - dissolveAmount : 1; // FADE WITH THE BODY'S DISSOLVE
+  if (alpha <= 0.02) return;
+
+  const C = CAPE_CLOTH;
+  const P = cloth.p;
+  const n = P.length;
+  const dir = player.flipX ? -1 : 1;
+  const r = clothRoot(); // PIN THE HEAD TO *THIS* FRAME'S FINAL COLLAR SO IT NEVER LAGS THE BODY
+  P[0].x = r.x;
+  P[0].y = r.y;
+  if (CLOAK_DEBUG_MARKERS) k.drawCircle({ pos: k.vec2(r.x, r.y), radius: 3, color: k.rgb("#00ffff") });
+
+  const pts = [];
+  const cols = [];
+  const left = [];
+  const right = [];
+  for (let i = 0; i < n; i++) {
+    const a = P[Math.max(0, i - 1)];
+    const b = P[Math.min(n - 1, i + 1)];
+    let tx = b.x - a.x;
+    let ty = b.y - a.y;
+    const len = Math.hypot(tx, ty) || 1;
+    tx /= len;
+    ty /= len;
+    // SIDE NORMAL, FLIPPED WITH FACING SO THE RIBBON'S "TOP" EDGE IS ALWAYS THE UPPER ONE
+    const nx = -ty * dir;
+    const ny = tx * dir;
+    const s = i / (n - 1);
+    let w = C.w0 + (C.w1 - C.w0) * Math.pow(s, 0.8);
+    w *= 1 + C.ripple * Math.min(1, capeSpeed + 0.3) * Math.sin(cloth.t * 8 - s * 7) * s;
+    const L = k.vec2(P[i].x + (nx * w) / 2, P[i].y + (ny * w) / 2);
+    const R = k.vec2(P[i].x - (nx * w) / 2, P[i].y - (ny * w) / 2);
+    left.push(L);
+    right.push(R);
+    pts.push(L, R);
+    const c = s < 0.5
+      ? CAPE_RGB[0].lerp(CAPE_RGB[1], s * 2)
+      : CAPE_RGB[1].lerp(CAPE_RGB[2], (s - 0.5) * 2);
+    cols.push(c, c);
+  }
+  const indices = [];
+  for (let i = 0; i < n - 1; i++) {
+    const a = i * 2;
+    indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  k.drawPolygon({ pts, indices, colors: cols, opacity: alpha });
+
+  // FOLD LINES + GLOWING HEM EDGES: CHEAP DETAIL THAT SELLS "CLOTH" ON A FLAT FILL
+  for (const f of [0.33, 0.66]) {
+    k.drawLines({ pts: left.map((l, i) => l.lerp(right[i], f)), width: 1.5, color: CAPE_EDGE_RGB, opacity: 0.22 * alpha });
+  }
+  for (const edge of [left, right]) {
+    k.drawLines({ pts: edge, width: 7, color: CAPE_GLOW_RGB, opacity: 0.16 * alpha });
+    k.drawLines({ pts: edge, width: 2, color: CAPE_EDGE_RGB, opacity: 0.9 * alpha });
+  }
+  k.drawLines({ pts: [left[n - 1], right[n - 1]], width: 2.5, color: CAPE_GLOW_RGB, opacity: 0.9 * alpha });
+}
+
+/* ---------- DEBUG READOUT ----------
+   INDEPENDENT UPDATE LOOP SO IT KEEPS REFRESHING EVEN DURING THE
+   isAttacking EARLY-RETURN IN MAIN onUpdate ABOVE. WATCH THE "grounded"
+   VALUE: IF IT FLIPS TO false ON JUMP AND NEVER FLIPS BACK TO true AFTER
+   LANDING, THAT CONFIRMS isGrounded() IS THE ROOT CAUSE OF THE STUCK ANIMATION. */
+k.onUpdate(() => {
+  if (!player || !debugLabel) return;
+  debugLabel.text =
+    `grounded: ${player.isGrounded()}\n` +
+    `currentAnim: ${currentAnim}\n` +
+    `frame: ${player.frame}  lift: ${visualLift}  hOffset: ${wallSlideHOffset}\n` +
+    `isAttacking: ${isAttacking}\n` +
+    `touchingWall: ${touchingWall ? touchingWall.dir : "-"}  wallJumpLock: ${wallJumpLock.toFixed(2)}\n` +
+    `vel.y: ${player.vel.y.toFixed(1)}\n` +
+    `pos.y: ${player.pos.y.toFixed(1)}\n` +
+    `squash: ${squash.x.toFixed(2)}, ${squash.y.toFixed(2)}  dash: ${dashTimer > 0 ? "ON" : dashCooldown > 0 ? "cooldown" : "ready"}  dissolve: ${dissolveAmount.toFixed(2)}  light: ${lightingOn ? "on" : "off"}\n` +
+    `cape (V): ${CAPE_MODES[capeMode]}  spring: ${capeSpring.a.toFixed(1)}deg`;
+});
+
+/* ---------- BOOT ---------- */
+await loadPlayerSprite(SPRITE_SRC);
+await loadCloakSprites();
+await loadSpellSprite(SPELL_SRC);
+await loadSwooshSprite(SWOOSH_SRC);
+await loadEffectSprites();
+await loadLevelSprites();
+await loadShaders();
+buildLevel();
+buildWalls();
+spawnPlayer();
+k.add([k.z(PARTICLE_Z), { id: "particleLayer", draw: drawParticles }]);
+k.add([k.z(GHOST_Z), { id: "ghostLayer", draw: drawGhosts }]);
+k.add([k.z(GHOST_Z + 0.5), { id: "clothLayer", draw: drawCloth }]); // verlet cape: behind the body (10), in front of ghosts (9)
+k.add([k.z(3), { id: "lampLayer", draw: drawLamps }]); // BEHIND THE PLAYER (10), IN FRONT OF THE LEVEL ART (1-2)
+lightOverlay = k.add([
+  k.rect(k.width(), k.height()),
+  k.pos(0, 0),
+  k.fixed(),
+  k.z(LIGHTING_Z), // OVER THE WORLD AND PARTICLES, UNDER THE DEBUG READOUT (1000)
+  k.shader("lighting", () => lightUniform),
+]);
+lightOverlay.hidden = !lightingOn;
+k.camPos(player.pos.x, player.pos.y - CAM_Y_OFFSET);
+
+debugLabel = k.add([
+  k.text("", { size: 16 }),
+  k.pos(20, 20),
+  k.fixed(),
+  k.z(1000),
+  k.color(0, 255, 255),
+]);
+</script>
+</body>
+
+
+</html>

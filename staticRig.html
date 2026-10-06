@@ -1,0 +1,1899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ANIMATION RIG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      user-select: none;
+    }
+    body {
+      background: #0b0018;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    }
+    .wrapper {
+      background: #170032;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 48px rgba(131, 12, 222, 0.18);
+    }
+    .canvas-container {
+      position: relative;
+      background: #aaa1c5;
+      overflow: hidden;
+      box-shadow: inset 0 0 0 1px #37025a;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      cursor: default;
+    }
+
+    /* the only UI: a small readout in the corner */
+    .hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(23, 0, 50, 0.72);
+      border: 1px solid #37025a;
+      font-family: 'Orbitron', ui-monospace, Menlo, Consolas, monospace;
+      font-size: 11px;
+      font-weight: 500;
+      color: #c4b5fd;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .hud b { font-weight: 700; color: #67FEBD; }
+    .hud[data-mode="image"] b { color: #fecd39; }
+    .hud .locked { color: #ff6200; }
+    .hud .free { color: #fecd39; }
+    .hud .keys { color: #9090C0; opacity: 0.7; }
+    .hud .frame { color: #dc4ce8; }
+    .hud .onion { color: #ff9a9e; }
+    .hud .warn { color: #ff6200; }
+    .hud[data-mode="play"] b { color: #58e84c; }
+
+    /* frame strip: thumbnails of every pose, current one lit, onion neighbours tinted */
+    .timeline {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 0;              /* never let a long strip widen the canvas... */
+      min-width: 100%;       /* ...it just scrolls sideways instead */
+      padding: 10px 12px;
+      overflow-x: auto;
+      background: #170032;
+      border-top: 1px solid #37025a;
+      scrollbar-width: thin;
+      scrollbar-color: #37025a transparent;
+    }
+    .frame-chip {
+      position: relative;
+      flex: 0 0 auto;
+      width: 96px;
+      border: 1px solid #37025a;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #0b0018;
+      cursor: pointer;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }
+    .frame-chip canvas { display: block; width: 100%; height: auto; }
+    .frame-chip .num {
+      position: absolute;
+      top: 2px;
+      left: 5px;
+      font-family: 'Orbitron', ui-monospace, Menlo, Consolas, monospace;
+      font-size: 9px;
+      font-weight: 700;
+      color: #9090C0;
+      text-shadow: 0 0 4px #0b0018, 0 0 4px #0b0018;
+      pointer-events: none;
+    }
+    .frame-chip:hover { border-color: #830cde; }
+    .frame-chip.past { border-color: #ff6200; }
+    .frame-chip.future { border-color: #58e84c; }
+    .frame-chip.current {
+      border-color: #67FEBD;
+      box-shadow: 0 0 12px rgba(103, 254, 189, 0.4);
+    }
+    .frame-chip.current .num { color: #67FEBD; }
+    .frame-add {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 46px;
+      border: 1px dashed #37025a;
+      border-radius: 6px;
+      color: #830cde;
+      font-family: 'Orbitron', ui-monospace, Menlo, Consolas, monospace;
+      font-size: 18px;
+      cursor: pointer;
+      transition: border-color 0.12s, color 0.12s;
+    }
+    .frame-add:hover { border-color: #A55AFF; color: #A55AFF; }
+
+    /* collapsible slider panels (joint gaps / stretch & squash) */
+    .panels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px 0;
+      background: #170032;
+      border-top: 1px solid #37025a;
+    }
+    .panel {
+      flex: 1 1 420px;
+      min-width: 0;
+      border: 1px solid #37025a;
+      border-radius: 8px;
+      background: #0b0018;
+      color: #c4b5fd;
+    }
+    .panel[open] { border-color: #830cde; box-shadow: 0 0 14px rgba(131, 12, 222, 0.25); }
+    .panel summary {
+      cursor: pointer;
+      padding: 8px 12px;
+      font-family: 'Orbitron', ui-monospace, Menlo, Consolas, monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #67FEBD;
+      list-style: none;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .panel summary::-webkit-details-marker { display: none; }
+    .panel summary::before { content: '\25B8'; color: #A55AFF; transition: transform 0.12s; }
+    .panel[open] summary::before { transform: rotate(90deg); }
+    .panel summary .hint { font-weight: 500; letter-spacing: 0; text-transform: none; color: #9090C0; font-size: 10px; }
+    .panel-body { padding: 2px 12px 12px; }
+    .panel-row {
+      display: grid;
+      grid-template-columns: 78px 1fr 40px 1fr 40px;
+      align-items: center;
+      column-gap: 8px;
+      row-gap: 4px;
+      font-size: 11px;
+    }
+    .panel-row .lbl { color: #c4b5fd; }
+    .panel-row .col { color: #9090C0; font-size: 10px; text-align: center; grid-column: span 2; text-transform: uppercase; letter-spacing: 0.08em; }
+    .panel-row .val { color: #fecd39; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10px; text-align: right; }
+    .panel input[type="range"] { width: 100%; accent-color: #A55AFF; height: 14px; }
+    .panel-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 2px 0 8px; font-size: 11px; color: #9090C0; }
+    .panel-tools label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+    .panel-tools input { accent-color: #67FEBD; }
+    .panel-tools button {
+      margin-left: auto;
+      background: transparent;
+      color: #ff9a9e;
+      border: 1px solid #37025a;
+      border-radius: 999px;
+      padding: 2px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .panel-tools button:hover { border-color: #ff69b4; color: #ff69b4; }
+    .panel-note { margin-top: 8px; font-size: 10px; color: #657383; line-height: 1.4; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="canvas-container" id="canvasContainer">
+    <canvas id="mainCanvas" width="1200" height="550"></canvas>
+    <div class="hud" id="hud"></div>
+  </div>
+  <div class="panels" id="panels">
+    <details class="panel" id="gapPanel">
+      <summary>Joint gaps <span class="hint">space around every joint</span></summary>
+      <div class="panel-body" id="gapBody"></div>
+    </details>
+    <details class="panel" id="stretchPanel">
+      <summary>Stretch &amp; squash <span class="hint">lengthen / shorten limbs &middot; saved per frame</span></summary>
+      <div class="panel-body" id="stretchBody"></div>
+    </details>
+  </div>
+  <div class="timeline" id="timeline"></div>
+</div>
+
+<script>
+  /*
+   * Keys
+   *   Tab  switch between rig mode (drag joints) and image mode (drag/resize/rotate images)
+   *   Panels under the canvas (click to open):
+   *     Joint gaps        extra space around each joint, on top of the gap already in the art (same for every frame)
+   *     Stretch & squash  make each arm / leg segment longer or shorter, saved in the current frame
+   *   B    show / hide the bone lines drawn over the body-part art (joint handles always show in rig mode)
+   *   V    switch the whole mannequin between the front-view and side-view sheet (saved per frame)
+   *   G    ghost the loose images (background etc, drawn behind the character)
+   *   R    reset the skeleton to its rest pose (rig mode)
+   * Image mode
+   *   drag = move, corner handle = resize, green handle = rotate, right-click = lock/unlock position
+   *   A          toggle proportion lock on the selected image (pink handle = ratio kept, yellow = free stretch)
+   *   ]  /  [    move the selected image one layer forward / back
+   *   Shift+]  /  Shift+[    bring to front / send to back
+   * Frames  (a frame = the whole pose: skeleton + every image's position/size/rotation + layer order)
+   *   Left / Right           previous / next frame  (or click a thumbnail)
+   *   Shift+Left / Right     move the current frame earlier / later
+   *   N                      new frame: a copy of the current one, inserted right after it
+   *   Delete                 remove the current frame (press twice to confirm)
+   *   Space                  play / pause the loop  (Esc also stops)
+   * Onion skin  (frames before = orange, frames after = green)
+   *   O                      onion skin on / off
+   *   Shift+O                cycle how many frames each side are shown (1-3)
+   */
+  (function () {
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('hud');
+
+    /* ------------------------------------------------------------------ *
+     *  CONFIG
+     * ------------------------------------------------------------------ */
+
+    const IMAGE_DIR = 'assets/images/';
+    // List order = stacking order (first = lowest image layer, last = on top).
+    const IMAGE_FILES = [
+      'background.png',
+    ];
+
+    /* ---- BODY PART ART ----
+     * Two mannequin sprite sheets, one per view (V switches between them):
+     *   images/rig/mannequin-front.png   16 frames        images/rig/mannequin-side.png   10 frames
+     * Every frame is 600px tall. Frame 1 is the whole mannequin at rest (reference only, never drawn).
+     * Every other frame holds ONE body part, already sitting where it belongs in the rest pose - so a
+     * part's place inside its frame IS the rest pose, and the rig copies it: no angles to tune by hand.
+     * The lighter-purple blobs (shoulders, elbows, knees) mark where a part attaches.
+     *
+     * ART_SCALE   how big the sheet art is drawn on the 1200x550 canvas (0.8 = 80%).
+     *             Every bone length is measured on the art and multiplied by ART_SCALE, so the
+     *             skeleton always matches the images. Change it to resize the whole character.
+     */
+    const SHEET_DIR = 'images/rig/';
+    const SHEET_FILES = { front: 'mannequin-front.png', side: 'mannequin-side.png' };
+    const ART_SCALE = 0.8;
+    const A = ART_SCALE;
+    const PAD = 2;   // transparent margin kept around each part when it is cut out of its frame
+
+    // { Shoulder: x } -> { rightShoulder: x, leftShoulder: x }  (side view: both sides share one sprite)
+    const both = o => {
+      const out = {};
+      for (const k in o) { out['right' + k] = o[k]; out['left' + k] = o[k]; }
+      return out;
+    };
+
+    /* Measured off the two sheets. All numbers are pixels INSIDE a frame (0,0 = that frame's top-left);
+     * every frame shares the same coordinates, so a joint means the same spot in frame 1 and in the part.
+     *   part    f = frame number in the sheet;  box = [x0, y0, x1, y1] tight around that part's art
+     *   joint   the joint's position in the rest pose. Bones are the lines between joints, so their
+     *           lengths and angles come from here. Where the sheet has a lighter-purple attach blob
+     *           (shoulders, elbows, knees) the joint is its centre; the rest were placed by eye:
+     *             pelvis = middle of the waist rim     neck = base of the neck, top of the chest
+     *             head   = middle of the head          hip = middle of the thigh's top rim
+     *             wrist  = where the forearm meets the hand     ankle = where the calf meets the shoe
+     *             heel / toe = the two ends of the sole (the shoe turns with the heel->toe line)
+     * If you redraw the sheets, update the numbers here (nothing else needs to change).
+     */
+    const MANNEQUIN = {
+      front: {
+        frames: 16,
+        part: {
+          head:          { f: 2,  box: [93, 90, 148, 159] },
+          chest:         { f: 3,  box: [69, 169, 173, 245] },
+          pelvis:        { f: 4,  box: [77, 254, 163, 335] },
+          rightUpperArm: { f: 5,  box: [56, 199, 88, 258] },
+          leftUpperArm:  { f: 6,  box: [153, 199, 185, 258] },
+          rightForearm:  { f: 7,  box: [38, 251, 72, 319] },
+          leftForearm:   { f: 8,  box: [169, 251, 204, 319] },
+          rightHand:     { f: 9,  box: [30, 321, 49, 345] },
+          leftHand:      { f: 10, box: [191, 321, 210, 345] },
+          rightThigh:    { f: 11, box: [73, 335, 119, 424] },
+          leftThigh:     { f: 12, box: [122, 335, 168, 424] },
+          rightCalf:     { f: 13, box: [79, 425, 111, 552] },
+          leftCalf:      { f: 14, box: [130, 425, 163, 552] },
+          rightFoot:     { f: 15, box: [79, 551, 105, 584] },
+          leftFoot:      { f: 16, box: [135, 551, 162, 584] }
+        },
+        joint: {
+          pelvis: [120.1, 260.6], neck: [120.1, 176], head: [120.1, 120],
+          rightShoulder: [79.1, 190.5],  leftShoulder: [162.7, 190.5],
+          rightElbow:    [63.3, 256.8],  leftElbow:    [178.0, 256.8],
+          rightWrist:    [43.4, 320],    leftWrist:    [197.4, 320],
+          rightHip:      [96.2, 340.9],  leftHip:      [144.8, 340.9],
+          rightKnee:     [96.9, 434.6],  leftKnee:     [144.7, 434.6],
+          rightAnkle:    [96.4, 550],    leftAnkle:    [144.4, 550],
+          rightHeel:     [79.5, 583],    leftHeel:     [135.5, 583],
+          rightToe:      [104.5, 583],   leftToe:      [161.5, 583]
+        }
+      },
+      side: {
+        frames: 10,
+        // right and left are the same picture (frames 5-10 are shared by both sides)
+        part: Object.assign({
+          head:   { f: 2, box: [98, 92, 157, 159] },
+          chest:  { f: 3, box: [98, 169, 163, 248] },
+          pelvis: { f: 4, box: [94, 254, 154, 340] }
+        }, both({
+          UpperArm: { f: 5,  box: [102, 167, 133, 249] },
+          Forearm:  { f: 6,  box: [108, 250, 131, 321] },
+          Hand:     { f: 7,  box: [117, 322, 142, 345] },
+          Thigh:    { f: 8,  box: [105, 335, 150, 427] },
+          Calf:     { f: 9,  box: [97, 425, 139, 552] },
+          Foot:     { f: 10, box: [103, 544, 166, 583] }
+        })),
+        joint: Object.assign({
+          pelvis: [117.6, 259.5], neck: [117.6, 168], head: [126, 120]
+        }, both({
+          Shoulder: [117.6, 180.4], Elbow: [118.0, 255.2], Wrist: [126.2, 321.5],
+          Hip: [128.6, 341], Knee: [127.6, 435.1], Ankle: [116.5, 550],
+          Heel: [104.5, 582], Toe: [165.5, 582]
+        }))
+      }
+    };
+
+    // Skeleton placement, in canvas pixels.
+    const BODY = {
+      root: { x: 600, y: 215 },   // pelvis position in the rest pose
+      headRadius: 30 * A          // only used as the grab area for the head
+    };
+
+    // Side view. 1 = character faces screen-right, -1 = faces screen-left (mirrors the art).
+    // (Facing right, the character's left side is the near side.)
+    const FACING = 1;
+
+    // Which bones/joints are shown over the art. B toggles the bone lines.
+    let showBones = false;
+
+    /* ---- joint gaps + stretch & squash ----
+     * gaps       extra art px of space around a joint, added on top of whatever gap the art already has
+     *            (0 = exactly as drawn). Global, saved in the browser.
+     * stretchSel a multiplier per segment (1 = normal, 1.3 = 30% longer). Saved per frame.
+     * keepVolume when a segment gets longer it also gets thinner (and vice versa) - the classic
+     *            squash & stretch idea: the limb keeps roughly the same "amount" of body.
+     * A segment's bone length = its length on the sheet x stretch (+ any gap).
+     */
+    // gap keys: side joints (right/left + joint) and two centre joints (neck, waist).
+    // Every one starts at 0 (the art as drawn); raise it to slide the piece away from its joint
+    // (waist = hips <-> chest, neck = chest <-> head).
+    const GAP_JOINTS = ['Shoulder', 'Elbow', 'Wrist', 'Hip', 'Knee', 'Ankle'];
+    const GAP_KEYS = ['neck', 'waist'];
+    const GAP_DEFAULT = { neck: 0, waist: 0 };
+    for (const side of ['right', 'left']) {
+      for (const jn of GAP_JOINTS) {
+        GAP_KEYS.push(side + jn);
+        GAP_DEFAULT[side + jn] = 0;
+      }
+    }
+    const SEGMENTS = ['UpperArm', 'ForeArm', 'Thigh', 'Calf'];
+    const STRETCH_MIN = 0.5;
+    const STRETCH_MAX = 1.7;
+    const gaps = {};
+    GAP_KEYS.forEach(k => { gaps[k] = GAP_DEFAULT[k]; });
+    let keepVolume = true;
+    const unitStretch = () => {
+      const st = {};
+      for (const side of ['right', 'left']) SEGMENTS.forEach(sg => { st[side + sg] = 1; });
+      return st;
+    };
+    let stretchSel = unitStretch();
+
+    // which sheet is in use: 'front' or 'side' (V). Stored per frame like the rest of the pose.
+    let viewSel = 'front';
+    const liveOpts = () => ({ stretch: stretchSel, view: viewSel });
+    const frameOpts = f => ({ stretch: f.stretch || stretchSel, view: f.view || viewSel });
+
+    // (new storage key: gaps saved by the old body-part version had elbow/knee gaps baked in)
+    function loadGaps() {
+      try {
+        const g = JSON.parse(localStorage.getItem('rigJointGaps2') || 'null');
+        if (g) GAP_KEYS.forEach(k => { if (typeof g[k] === 'number') gaps[k] = g[k]; });
+      } catch (e) { /* storage unavailable: defaults are fine */ }
+    }
+    function saveGaps() {
+      try { localStorage.setItem('rigJointGaps2', JSON.stringify(gaps)); } catch (e) { /* ignore */ }
+    }
+
+    const GHOST_ALPHA = 0.35;
+    const HIT_RADIUS = 12;
+
+    // Playback speed for Space.
+    const FPS = 8;
+
+    // Onion skin: neighbouring frames drawn as flat tinted silhouettes under the current pose.
+    const ONION_COLOR = { past: '#ff6200', future: '#58e84c' };
+    const ONION_ALPHA = [0.42, 0.24, 0.12];   // opacity for 1, 2, 3 frames away (length = max depth)
+    const ONION_WRAP = false;                 // true: frame 1 treats the last frame as "before" it (loops)
+
+    const THUMB_W = 120;                      // thumbnail resolution (shown at 96px wide)
+
+    const COLOR = {
+      L: '#827ffb',       // left side
+      R: '#b169fc',       // right side
+      C: '#9d79fb',       // spine, neck, head
+      root: '#9d79fb',    // pelvis (drag to move the whole figure)
+      base: '#575a99',
+      grid: 'rgba(131, 12, 222, 0.16)'
+    };
+
+    /* ------------------------------------------------------------------ *
+     *  RIG
+     *  Each joint stores a fixed bone length plus a *local* angle relative
+     *  to its parent bone, so rotating a joint carries everything below it.
+     * ------------------------------------------------------------------ */
+
+    const DEG = Math.PI / 180;
+    const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+
+    const rig = [];
+    const byName = {};
+    const groups = {};   // joints that rotate together (heel + toe of each foot)
+    let root = null;
+    let head = null;
+
+    function add(name, parentName, extra) {
+      const parent = parentName ? byName[parentName] : null;
+      const joint = Object.assign({
+        name,
+        index: rig.length,
+        parent,
+        len: 0,     // filled in by applyLengths()
+        side: name.startsWith('right') ? 'R' : name.startsWith('left') ? 'L' : 'C',
+        local: 0,   // current angle relative to the parent bone
+        frame: 0,   // current world angle of the bone parent -> this joint
+        x: 0,
+        y: 0
+      }, extra);
+      rig.push(joint);
+      byName[name] = joint;
+      if (joint.group) (groups[joint.group] = groups[joint.group] || []).push(joint);
+      return joint;
+    }
+
+    function buildRig() {
+      root = add('pelvis', null);
+      add('neck', 'pelvis');
+      head = add('head', 'neck');
+
+      for (const side of ['right', 'left']) {
+        const n = part => side + part;
+
+        add(n('Hip'),      'pelvis');
+        add(n('Knee'),     n('Hip'));
+        add(n('Ankle'),    n('Knee'));
+        add(n('Heel'),     n('Ankle'), { group: side + 'Foot' });
+        add(n('Toe'),      n('Ankle'), { group: side + 'Foot' });
+        add(n('Shoulder'), 'neck');
+        add(n('Elbow'),    n('Shoulder'));
+        add(n('Wrist'),    n('Elbow'));
+      }
+    }
+
+    /* The rest pose of each view, read straight off the sheet: every bone's length and angle come from
+     * the joint positions in MANNEQUIN.
+     *   len      bone length on the art (art px)
+     *   art      bone angle on the art (facing screen-right)
+     *   world    the same angle as the rig sees it (only differs when FACING is -1 and the art is mirrored)
+     *   local    world angle relative to the parent bone (what a joint stores)
+     *   footArt / footWorld   the heel->toe line of each foot
+     */
+    const REST = {};
+    function buildRest() {
+      const mirror = a => (FACING === 1 ? a : Math.PI - a);
+      for (const view of Object.keys(MANNEQUIN)) {
+        const J = MANNEQUIN[view].joint;
+        const r = { len: [], art: [], world: [], local: [], footArt: {}, footWorld: {} };
+        rig.forEach((j, i) => {
+          if (!j.parent) { r.len[i] = 0; r.art[i] = 0; r.world[i] = 0; return; }
+          const p = J[j.parent.name];
+          const c = J[j.name];
+          r.len[i] = Math.hypot(c[0] - p[0], c[1] - p[1]);
+          r.art[i] = Math.atan2(c[1] - p[1], c[0] - p[0]);
+          r.world[i] = mirror(r.art[i]);
+        });
+        rig.forEach((j, i) => {
+          r.local[i] = j.parent ? wrap(r.world[i] - r.world[j.parent.index]) : 0;
+        });
+        for (const side of ['right', 'left']) {
+          const heel = J[side + 'Heel'];
+          const toe = J[side + 'Toe'];
+          r.footArt[side] = Math.atan2(toe[1] - heel[1], toe[0] - heel[0]);
+          r.footWorld[side] = mirror(r.footArt[side]);
+        }
+        REST[view] = r;
+      }
+    }
+
+    // bone lengths (canvas px) for a given stretch set: sheet length x stretch, plus any joint gaps.
+    // A bone that runs through a gap gets that gap added, so everything below the joint moves with it.
+    function boneLengths(st, view = viewSel) {
+      const R = REST[view].len;
+      const L = R.map(v => v * A);
+      for (const side of ['right', 'left']) {
+        const S = sg => st[side + sg] ?? 1;
+        const at = n => byName[side + n].index;
+        L[at('Elbow')] = (R[at('Elbow')] * S('UpperArm') + gaps[side + 'Shoulder'] + gaps[side + 'Elbow']) * A;
+        L[at('Wrist')] = (R[at('Wrist')] * S('ForeArm') + gaps[side + 'Elbow']) * A;
+        L[at('Knee')]  = (R[at('Knee')] * S('Thigh') + gaps[side + 'Hip'] + gaps[side + 'Knee']) * A;
+        L[at('Ankle')] = (R[at('Ankle')] * S('Calf') + gaps[side + 'Knee']) * A;
+      }
+      // centre joints: waist = pelvis -> neck bone (hips <-> chest), neck = neck -> head bone
+      L[byName.neck.index] = (R[byName.neck.index] + gaps.waist) * A;
+      L[byName.head.index] = (R[byName.head.index] + gaps.neck) * A;
+      return L;
+    }
+
+    function applyLengths() {
+      const L = boneLengths(stretchSel, viewSel);
+      rig.forEach((j, i) => { j.len = L[i]; });
+    }
+
+    function solveFK() {
+      for (const j of rig) {
+        if (!j.parent) { j.frame = 0; continue; }
+        j.frame = j.parent.frame + j.local;
+        j.x = j.parent.x + Math.cos(j.frame) * j.len;
+        j.y = j.parent.y + Math.sin(j.frame) * j.len;
+      }
+    }
+
+    function resetRig() {
+      root.x = BODY.root.x;
+      root.y = BODY.root.y;
+      const rest = REST[viewSel].local;
+      rig.forEach((j, i) => { j.local = rest[i]; });
+      solveFK();
+    }
+
+    // Switching view keeps the pose: each joint keeps how far it is turned from ITS OWN rest angle
+    // (the two sheets don't have identical rest angles, e.g. the hips).
+    function setView(next) {
+      if (next === viewSel) return;
+      const from = REST[viewSel].local;
+      const to = REST[next].local;
+      rig.forEach((j, i) => { if (j.parent) j.local = wrap(j.local - from[i] + to[i]); });
+      viewSel = next;
+      applyLengths();
+      solveFK();
+      commit();
+      draw();
+    }
+
+    function hitJoint(x, y) {
+      let best = null;
+      let bestDist = Infinity;
+      for (const j of rig) {
+        if (j === head) continue;
+        const d = Math.hypot(x - j.x, y - j.y);
+        if (d <= HIT_RADIUS && d <= bestDist) { best = j; bestDist = d; }
+      }
+      if (best) return best;
+      // the head circle is a big target, so small joints win where they overlap it
+      return Math.hypot(x - head.x, y - head.y) <= BODY.headRadius ? head : null;
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  STATE
+     * ------------------------------------------------------------------ */
+
+    let mode = 'rig';          // 'rig' | 'image'
+    let ghost = false;
+    let hoverJoint = null;
+    let rigDrag = null;        // { joint, dx, dy, angOff }
+
+    let ready = false;         // true once the images have loaded and frame 1 exists
+    let frames = [];           // one full-pose snapshot per frame (see FRAMES)
+    let current = 0;           // index of the frame being edited
+    let onion = true;
+    let onionDepth = 1;        // frames shown each side of the current one
+    let playing = false;
+    let lastTick = 0;
+    let pendingDelete = null;  // timer id while "press Delete again" is armed
+    let dataVersion = 0;       // bumps whenever a stored frame changes (invalidates the onion cache)
+    const imageByName = {};
+
+    let images = [];
+    let selectedIndex = -1;
+    let isDragging = false;
+    let isResizing = false;
+    let isRotating = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+    let resizeStartX = 0;
+    let resizeStartY = 0;
+    let resizeStartW = 0;
+    let resizeStartH = 0;
+    let resizeAnchorX = 0;     // world position of the image's top-left corner while resizing
+    let resizeAnchorY = 0;
+    let rotateStartAngle = 0;
+    let rotateStartRotation = 0;
+
+    function toCanvasCoords(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  IMAGES
+     * ------------------------------------------------------------------ */
+
+    // ---- body parts (cut out of the two mannequin sheets) ----
+    const sprites = { front: {}, side: {} };   // sprites[view][part] = { cv, ox, oy }: the cut-out + where it sat in its frame
+    const missingSheets = [];
+
+    function loadSheets(done) {
+      const views = Object.keys(SHEET_FILES);
+      const imgs = {};
+      let pending = views.length;
+      const settle = () => {
+        if (--pending > 0) return;
+        buildSprites(imgs);
+        done();
+      };
+      views.forEach(view => {
+        const img = new Image();
+        img.onload = () => { imgs[view] = img; settle(); };
+        img.onerror = () => {
+          console.warn(`Failed to load: ${SHEET_DIR}${SHEET_FILES[view]}`);
+          missingSheets.push(SHEET_DIR + SHEET_FILES[view]);
+          settle();
+        };
+        img.src = SHEET_DIR + SHEET_FILES[view];
+      });
+    }
+
+    // Cut every part out of its frame onto a small canvas of its own (the sheet is never read back
+    // pixel by pixel, so this also works when the page is opened straight from disk).
+    function buildSprites(imgs) {
+      for (const view of Object.keys(MANNEQUIN)) {
+        const img = imgs[view];
+        if (!img) continue;
+        const M = MANNEQUIN[view];
+        const frameW = img.width / M.frames;
+        for (const name of Object.keys(M.part)) {
+          const { f, box } = M.part[name];
+          const ox = box[0] - PAD;
+          const oy = box[1] - PAD;
+          const w = box[2] - box[0] + 1 + PAD * 2;
+          const h = box[3] - box[1] + 1 + PAD * 2;
+          const cv = document.createElement('canvas');
+          cv.width = w;
+          cv.height = h;
+          cv.getContext('2d').drawImage(img, Math.round((f - 1) * frameW) + ox, oy, w, h, 0, 0, w, h);
+          sprites[view][name] = { cv, ox, oy };
+        }
+      }
+    }
+
+    /* How each part hangs on the skeleton.
+     *   at       the joint the part is pinned to (its spot in the rest pose is where the sheet drew it)
+     *   follow   the joint whose bone (its parent -> it) the part turns with
+     *   foot     'left'/'right': turn with that foot's heel->toe line instead
+     *   fixed    true = never rotates (the pelvis)
+     *   gap      which Joint-gaps slider slides this part away from its joint
+     *   stretch  which Stretch slider lengthens/shortens this part
+     */
+    const PARTS = {
+      head:   { at: 'head',   follow: 'head' },
+      chest:  { at: 'neck',   follow: 'neck' },
+      pelvis: { at: 'pelvis', fixed: true }
+    };
+    for (const side of ['right', 'left']) {
+      const n = part => side + part;
+      PARTS[n('UpperArm')] = { at: n('Shoulder'), follow: n('Elbow'), gap: n('Shoulder'), stretch: n('UpperArm') };
+      PARTS[n('Forearm')]  = { at: n('Elbow'),    follow: n('Wrist'), gap: n('Elbow'),    stretch: n('ForeArm') };
+      PARTS[n('Hand')]     = { at: n('Wrist'),    follow: n('Wrist'), gap: n('Wrist') };
+      PARTS[n('Thigh')]    = { at: n('Hip'),      follow: n('Knee'),  gap: n('Hip'),      stretch: n('Thigh') };
+      PARTS[n('Calf')]     = { at: n('Knee'),     follow: n('Ankle'), gap: n('Knee'),     stretch: n('Calf') };
+      PARTS[n('Foot')]     = { at: n('Ankle'),    foot: side,         gap: n('Ankle') };
+    }
+
+    // Drawing order, back to front, for each view.
+    //  front: the chest sits over the upper arms (its shoulder balls cover their tops); forearms and
+    //         hands are in front of everything so they show when an arm is raised across the body.
+    //  side:  the right arm and leg are the far side (behind); the left ones are the near side (in front).
+    const ORDER = {
+      front: ['rightCalf', 'rightFoot', 'rightThigh', 'leftCalf', 'leftFoot', 'leftThigh', 'pelvis',
+              'rightUpperArm', 'leftUpperArm', 'chest', 'head',
+              'rightForearm', 'leftForearm', 'rightHand', 'leftHand'],
+      side:  ['rightUpperArm', 'rightForearm', 'rightHand', 'rightCalf', 'rightFoot', 'rightThigh',
+              'leftCalf', 'leftFoot', 'leftThigh', 'pelvis', 'chest', 'head',
+              'leftUpperArm', 'leftForearm', 'leftHand']
+    };
+
+    // Draw every part for a set of joint positions (pts[i] = {x, y}, same order as `rig`).
+    // Each part is pinned to its joint and turned by (bone angle now) - (bone angle in the rest pose).
+    function drawParts(c, pts, alpha, o = liveOpts()) {
+      const view = o.view;
+      const rest = REST[view];
+      const joint = MANNEQUIN[view].joint;
+      c.save();
+      c.globalAlpha = alpha;
+      c.imageSmoothingEnabled = true;
+      c.imageSmoothingQuality = 'high';
+      for (const name of ORDER[view]) {
+        const def = PARTS[name];
+        const spr = sprites[view][name];
+        if (!spr) continue;
+        const at = pts[byName[def.at].index];
+
+        // the joint's spot inside this cut-out, and the way the limb points on the art (radians)
+        const jp = joint[def.at];
+        const anchor = [jp[0] - spr.ox, jp[1] - spr.oy];
+        const axis = def.foot ? rest.footArt[def.foot] : def.follow ? rest.art[byName[def.follow].index] : 0;
+
+        // joint gap: slide the piece away from its joint, along its limb (shoes slide straight down)
+        const g = def.gap ? (gaps[def.gap] || 0) : 0;
+        const pivot = !g ? anchor
+          : def.foot ? [anchor[0], anchor[1] - g]
+          : [anchor[0] - Math.cos(axis) * g, anchor[1] - Math.sin(axis) * g];
+        const st = def.stretch ? (o.stretch[def.stretch] ?? 1) : 1;
+
+        let rot = 0;
+        if (!def.fixed) {
+          let bone, restBone;
+          if (def.foot) {
+            const heel = pts[byName[def.foot + 'Heel'].index];
+            const toe = pts[byName[def.foot + 'Toe'].index];
+            bone = Math.atan2(toe.y - heel.y, toe.x - heel.x);
+            restBone = rest.footWorld[def.foot];
+          } else {
+            const j = byName[def.follow];
+            const from = pts[j.parent.index];
+            const to = pts[j.index];
+            bone = Math.atan2(to.y - from.y, to.x - from.x);
+            restBone = rest.world[j.index];
+          }
+          rot = bone - restBone;
+        }
+
+        c.save();
+        c.translate(at.x, at.y);
+        c.rotate(rot);
+        c.scale(FACING * A, A);
+        if (st !== 1) {
+          // scale along the limb's own axis from the joint (length x st, width x 1/sqrt(st) when keeping
+          // volume); the gap itself is never scaled
+          const th = axis - Math.PI / 2;
+          const ax = anchor[0] - pivot[0];
+          const ay = anchor[1] - pivot[1];
+          c.translate(ax, ay);
+          c.rotate(th);
+          c.scale(keepVolume ? 1 / Math.sqrt(st) : 1, st);
+          c.rotate(-th);
+          c.translate(-ax, -ay);
+        }
+        c.drawImage(spr.cv, -pivot[0], -pivot[1]);
+        c.restore();
+      }
+      c.restore();
+    }
+
+    function loadImages() {
+      const slots = new Array(IMAGE_FILES.length).fill(null);
+      let pending = IMAGE_FILES.length;
+      if (pending === 0) { finishLoad(slots); return; }
+
+      const settle = () => {
+        if (--pending > 0) return;
+        finishLoad(slots);   // keeps IMAGE_FILES order regardless of load order
+      };
+
+      IMAGE_FILES.forEach((filename, idx) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 220;
+          const maxH = 220;
+          let w = img.width;
+          let h = img.height;
+          if (w > maxW) { h = (maxW / w) * h; w = maxW; }
+          if (h > maxH) { w = (maxH / h) * w; h = maxH; }
+          w = Math.round(w);
+          h = Math.round(h);
+          // staging grid, clamped so every image starts on the canvas
+          const x = Math.max(0, Math.min(80 + (idx % 3) * 180, canvas.width - w - 10));
+          const y = Math.max(0, Math.min(80 + Math.floor(idx / 3) * 160, canvas.height - h - 10));
+          slots[idx] = {
+            name: filename.replace(/\.png$/i, ''),
+            img, x, y, w, h,
+            rotation: 0,
+            locked: false,        // position lock (right-click)
+            aspectLocked: true    // proportion lock (A key); set to false here to start free
+          };
+          settle();
+        };
+        img.onerror = () => {
+          console.warn(`Failed to load: ${IMAGE_DIR}${filename}`);
+          settle();
+        };
+        img.src = IMAGE_DIR + filename;
+      });
+    }
+
+    function toLocal(item, px, py) {
+      const dx = px - (item.x + item.w / 2);
+      const dy = py - (item.y + item.h / 2);
+      const cos = Math.cos(-item.rotation);
+      const sin = Math.sin(-item.rotation);
+      return {
+        x: dx * cos - dy * sin + item.w / 2,
+        y: dx * sin + dy * cos + item.h / 2
+      };
+    }
+
+    function hitTest(px, py) {
+      for (let i = images.length - 1; i >= 0; i--) {
+        const item = images[i];
+        const p = toLocal(item, px, py);
+        if (p.x >= 0 && p.x <= item.w && p.y >= 0 && p.y <= item.h) return i;
+      }
+      return -1;
+    }
+
+    function hitResizeHandle(px, py) {
+      if (selectedIndex === -1) return false;
+      const item = images[selectedIndex];
+      if (item.locked) return false;
+      const p = toLocal(item, px, py);
+      return Math.hypot(p.x - item.w, p.y - item.h) < 20;
+    }
+
+    function hitRotateHandle(px, py) {
+      if (selectedIndex === -1) return false;
+      const item = images[selectedIndex];
+      if (item.locked) return false;
+      const p = toLocal(item, px, py);
+      return Math.hypot(p.x - item.w / 2, p.y + 20) < 20;
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  FRAMES
+     *  A frame is a full snapshot of one pose: the pelvis position, every
+     *  joint's local angle, each image's transform and the layer order. The
+     *  live rig/images always show the current frame; edits are written back
+     *  to it ("committed") on mouse-up and whenever you leave the frame.
+     *  Position lock and proportion lock belong to the image itself, so they
+     *  carry across every frame.
+     * ------------------------------------------------------------------ */
+
+    const timelineEl = document.getElementById('timeline');
+    const onionCache = { ver: -1, layers: new Map() };
+
+    function finishLoad(slots) {
+      images = slots.filter(Boolean);
+      images.forEach(it => { imageByName[it.name] = it; });
+      selectedIndex = images.length ? 0 : -1;
+      ready = true;
+      frames = [captureFrame()];
+      current = 0;
+      renderTimeline();
+      draw();
+    }
+
+    function captureFrame() {
+      const snap = {
+        root: { x: root.x, y: root.y },
+        locals: rig.map(j => j.local),
+        images: {},
+        order: images.map(it => it.name),
+        stretch: Object.assign({}, stretchSel),
+        view: viewSel
+      };
+      images.forEach(it => {
+        snap.images[it.name] = { x: it.x, y: it.y, w: it.w, h: it.h, rotation: it.rotation };
+      });
+      return snap;
+    }
+
+    function applyFrame(f) {
+      root.x = f.root.x;
+      root.y = f.root.y;
+      rig.forEach((j, i) => { j.local = f.locals[i]; });
+      stretchSel = Object.assign(unitStretch(), f.stretch || {});
+      viewSel = f.view || 'front';
+      applyLengths();
+      solveFK();
+      syncPanels();
+      const selected = images[selectedIndex] ? images[selectedIndex].name : null;
+      images = f.order.map(n => imageByName[n]).filter(Boolean);
+      images.forEach(it => Object.assign(it, f.images[it.name]));
+      selectedIndex = selected ? images.findIndex(it => it.name === selected) : -1;
+    }
+
+    // write the live pose back into the current frame (only if something actually changed)
+    function commit() {
+      if (!ready || playing) return;
+      const snap = captureFrame();
+      if (JSON.stringify(snap) === JSON.stringify(frames[current])) return;
+      frames[current] = snap;
+      dataVersion++;
+      refreshThumb(current);
+    }
+
+    /* ---- drawing a stored frame (onion skin + thumbnails) ---- */
+
+    function frameJoints(f) {
+      const pos = new Array(rig.length);
+      const ang = new Array(rig.length);
+      const L = boneLengths(f.stretch || stretchSel, f.view || viewSel);
+      rig.forEach((j, i) => {
+        if (!j.parent) { ang[i] = 0; pos[i] = { x: f.root.x, y: f.root.y }; return; }
+        const p = j.parent.index;
+        ang[i] = ang[p] + f.locals[i];
+        pos[i] = {
+          x: pos[p].x + Math.cos(ang[i]) * L[i],
+          y: pos[p].y + Math.sin(ang[i]) * L[i]
+        };
+      });
+      return pos;
+    }
+
+    function drawFrameParts(c, f, alpha) {
+      drawParts(c, frameJoints(f), alpha, frameOpts(f));
+    }
+
+    function drawFrameImages(c, f, alpha) {
+      for (const name of f.order) {
+        const item = imageByName[name];
+        const t = f.images[name];
+        if (!item || !t) continue;
+        c.save();
+        c.translate(t.x + t.w / 2, t.y + t.h / 2);
+        c.rotate(t.rotation);
+        c.globalAlpha = alpha;
+        c.drawImage(item.img, -t.w / 2, -t.h / 2, t.w, t.h);
+        c.restore();
+      }
+    }
+
+    function drawFrameSkeleton(c, f, color, alpha, lineWidth) {
+      const p = frameJoints(f);
+      c.save();
+      c.globalAlpha = alpha;
+      c.strokeStyle = color;
+      c.fillStyle = color;
+      c.lineWidth = lineWidth;
+      c.lineCap = 'round';
+      c.beginPath();
+      rig.forEach((j, i) => {
+        if (!j.parent) return;
+        c.moveTo(p[j.parent.index].x, p[j.parent.index].y);
+        c.lineTo(p[i].x, p[i].y);
+      });
+      c.stroke();
+      c.beginPath();
+      c.arc(p[head.index].x, p[head.index].y, BODY.headRadius, 0, Math.PI * 2);
+      c.stroke();
+      p.forEach(pt => {
+        c.beginPath();
+        c.arc(pt.x, pt.y, lineWidth * 1.1, 0, Math.PI * 2);
+        c.fill();
+      });
+      c.restore();
+    }
+
+    /* ---- onion skin ---- */
+
+    // flat tinted silhouette of one frame's images; cached until any frame changes
+    function onionLayer(idx, color) {
+      if (onionCache.ver !== dataVersion || onionCache.layers.size > 8) {
+        onionCache.layers.clear();
+        onionCache.ver = dataVersion;
+      }
+      const key = idx + color;
+      let layer = onionCache.layers.get(key);
+      if (!layer) {
+        layer = document.createElement('canvas');
+        layer.width = canvas.width;
+        layer.height = canvas.height;
+        const lc = layer.getContext('2d');
+        drawFrameParts(lc, frames[idx], 1);   // just the character, not the background
+        lc.globalCompositeOperation = 'source-atop';   // keep only the pixels that are already painted
+        lc.fillStyle = color;
+        lc.fillRect(0, 0, layer.width, layer.height);
+        onionCache.layers.set(key, layer);
+      }
+      return layer;
+    }
+
+    // which frames get an onion skin right now, farthest first so the nearest ends up on top
+    function onionNeighbors() {
+      const out = [];
+      if (!ready || !onion || playing || frames.length < 2) return out;
+      const n = frames.length;
+      const seen = new Set([current]);
+      for (let d = 1; d <= onionDepth; d++) {
+        for (const dir of [-1, 1]) {
+          let idx = current + dir * d;
+          if (ONION_WRAP) idx = ((idx % n) + n) % n;
+          else if (idx < 0 || idx >= n) continue;
+          if (seen.has(idx)) continue;
+          seen.add(idx);
+          out.push({
+            idx, dir, d,
+            color: dir < 0 ? ONION_COLOR.past : ONION_COLOR.future,
+            alpha: ONION_ALPHA[d - 1]
+          });
+        }
+      }
+      return out.sort((a, b) => b.d - a.d);
+    }
+
+    function drawOnion() {
+      for (const o of onionNeighbors()) {
+        ctx.save();
+        ctx.globalAlpha = o.alpha;
+        ctx.drawImage(onionLayer(o.idx, o.color), 0, 0);
+        ctx.restore();
+        if (showBones) drawFrameSkeleton(ctx, frames[o.idx], o.color, Math.min(1, o.alpha * 1.7), 2);
+      }
+    }
+
+    /* ---- timeline strip ---- */
+
+    function renderThumb(c, f) {
+      const s = c.canvas.width / canvas.width;
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.fillStyle = '#0b0018';
+      c.fillRect(0, 0, c.canvas.width, c.canvas.height);
+      c.setTransform(s, 0, 0, s, 0, 0);
+      drawFrameImages(c, f, 1);
+      drawFrameParts(c, f, 1);
+      c.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
+    function refreshThumb(i) {
+      const chip = timelineEl.children[i];
+      const cv = chip && chip.querySelector('canvas');
+      if (cv) renderThumb(cv.getContext('2d'), frames[i]);
+    }
+
+    function renderTimeline() {
+      timelineEl.innerHTML = '';
+      frames.forEach((f, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'frame-chip';
+        const cv = document.createElement('canvas');
+        cv.width = THUMB_W;
+        cv.height = Math.round(THUMB_W * canvas.height / canvas.width);
+        const num = document.createElement('span');
+        num.className = 'num';
+        num.textContent = i + 1;
+        chip.append(cv, num);
+        chip.addEventListener('click', () => gotoFrame(i));
+        timelineEl.appendChild(chip);
+        renderThumb(cv.getContext('2d'), f);
+      });
+      const add = document.createElement('div');
+      add.className = 'frame-add';
+      add.textContent = '+';
+      add.title = 'new frame (N)';
+      add.addEventListener('click', newFrame);
+      timelineEl.appendChild(add);
+      syncTimeline();
+    }
+
+    // highlight the current frame + the onion neighbours, and keep the current chip in view
+    function syncTimeline() {
+      const near = {};
+      onionNeighbors().forEach(o => { near[o.idx] = o.dir < 0 ? 'past' : 'future'; });
+      timelineEl.querySelectorAll('.frame-chip').forEach((chip, i) => {
+        chip.classList.toggle('current', i === current);
+        chip.classList.toggle('past', near[i] === 'past');
+        chip.classList.toggle('future', near[i] === 'future');
+      });
+      const chip = timelineEl.children[current];
+      if (chip) {
+        const left = chip.offsetLeft;
+        const right = left + chip.offsetWidth;
+        if (left < timelineEl.scrollLeft) timelineEl.scrollLeft = left - 12;
+        else if (right > timelineEl.scrollLeft + timelineEl.clientWidth) {
+          timelineEl.scrollLeft = right - timelineEl.clientWidth + 12;
+        }
+      }
+    }
+
+    /* ---- moving between / editing frames ---- */
+
+    function gotoFrame(i) {
+      if (!ready) return;
+      if (playing) stopPlayback();
+      i = Math.max(0, Math.min(frames.length - 1, i));
+      if (i === current) return;
+      commit();
+      cancelDelete();
+      current = i;
+      applyFrame(frames[current]);
+      rigDrag = null;
+      isDragging = isResizing = isRotating = false;
+      syncTimeline();
+      draw();
+    }
+
+    function newFrame() {
+      if (!ready || playing) return;
+      commit();
+      cancelDelete();
+      frames.splice(current + 1, 0, JSON.parse(JSON.stringify(frames[current])));
+      current += 1;
+      dataVersion++;
+      renderTimeline();
+      draw();
+    }
+
+    function moveFrame(dir) {
+      const to = current + dir;
+      if (!ready || playing || to < 0 || to >= frames.length) return;
+      commit();
+      const [f] = frames.splice(current, 1);
+      frames.splice(to, 0, f);
+      current = to;
+      dataVersion++;
+      renderTimeline();
+      draw();
+    }
+
+    function cancelDelete() {
+      if (pendingDelete) { clearTimeout(pendingDelete); pendingDelete = null; }
+    }
+
+    // first press arms it (the HUD says so), second press within 2.5s removes the frame
+    function requestDelete() {
+      if (!ready || playing || frames.length < 2) return;
+      if (pendingDelete) {
+        cancelDelete();
+        frames.splice(current, 1);
+        current = Math.min(current, frames.length - 1);
+        applyFrame(frames[current]);
+        dataVersion++;
+        renderTimeline();
+      } else {
+        pendingDelete = setTimeout(() => { pendingDelete = null; draw(); }, 2500);
+      }
+      draw();
+    }
+
+    /* ---- playback ---- */
+
+    function startPlayback() {
+      if (!ready || frames.length < 2) return;
+      commit();
+      cancelDelete();
+      playing = true;
+      rigDrag = null;
+      hoverJoint = null;
+      isDragging = isResizing = isRotating = false;
+      canvas.style.cursor = 'default';
+      lastTick = performance.now();
+      syncTimeline();
+      draw();
+      requestAnimationFrame(tick);
+    }
+
+    function stopPlayback() {
+      playing = false;
+      syncTimeline();
+      draw();
+    }
+
+    function tick(now) {
+      if (!playing) return;
+      const step = 1000 / FPS;
+      if (now - lastTick >= step) {
+        lastTick = now - ((now - lastTick) % step);
+        current = (current + 1) % frames.length;
+        applyFrame(frames[current]);
+        syncTimeline();
+        draw();
+      }
+      requestAnimationFrame(tick);
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  DRAWING  (grid -> onion skin -> skeleton -> images)
+     * ------------------------------------------------------------------ */
+
+    function drawGrid() {
+      ctx.strokeStyle = COLOR.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x <= canvas.width; x += 40) {
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, canvas.height);
+      }
+      for (let y = 0; y <= canvas.height; y += 40) {
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(canvas.width, y + 0.5);
+      }
+      ctx.stroke();
+    }
+
+    // The skeleton is now an overlay on top of the part art: joint handles in rig mode,
+    // plus the bone lines / head circle / sole guides when showBones (B) is on.
+    function drawRig() {
+      if (!showBones && mode !== 'rig') return;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (showBones) {
+        // soles: heel-to-toe guide, not a bone
+        ctx.globalAlpha = 0.5;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        for (const side of ['right', 'left']) {
+          const heel = byName[side + 'Heel'];
+          const toe = byName[side + 'Toe'];
+          ctx.strokeStyle = COLOR[heel.side];
+          ctx.beginPath();
+          ctx.moveTo(heel.x, heel.y);
+          ctx.lineTo(toe.x, toe.y);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+
+        // bones
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 10;
+        for (const j of rig) {
+          if (!j.parent) continue;
+          ctx.strokeStyle = ctx.shadowColor = COLOR[j.side];
+          ctx.beginPath();
+          ctx.moveTo(j.parent.x, j.parent.y);
+          ctx.lineTo(j.x, j.y);
+          ctx.stroke();
+        }
+
+        // head circle
+        const headHot = rigDrag ? rigDrag.joint === head : hoverJoint === head;
+        ctx.strokeStyle = ctx.shadowColor = COLOR.C;
+        ctx.fillStyle = 'rgba(131, 12, 222, 0.18)';
+        ctx.lineWidth = headHot ? 4.5 : 3;
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, BODY.headRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // joint handles (smaller and glowier when the bones are hidden, so the art stays readable)
+      ctx.lineWidth = 2;
+      for (const j of rig) {
+        const active = !!rigDrag && rigDrag.joint === j;
+        const hot = active || (!rigDrag && j === hoverJoint);
+        const col = j === root ? COLOR.root : COLOR[j.side];
+        const base = showBones ? 6.5 : 4.5;
+        const r = (j === root ? base + 2.5 : j === head ? base - 1.5 : base) + (hot ? 2.5 : 0);
+        ctx.globalAlpha = showBones || hot ? 1 : 0.8;
+        ctx.strokeStyle = ctx.shadowColor = col;
+        ctx.shadowBlur = hot ? 18 : 8;
+        ctx.fillStyle = active ? '#ffffff' : hot ? col : COLOR.base;
+        ctx.beginPath();
+        ctx.arc(j.x, j.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawSelection(item) {
+      if (item.locked) {
+        ctx.strokeStyle = '#ff6200';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(0, 0, item.w, item.h);
+        ctx.setLineDash([]);
+        return;
+      }
+
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 6]);
+      ctx.strokeRect(0, 0, item.w, item.h);
+      ctx.setLineDash([]);
+
+      // resize handle (bottom-right): pink = proportions locked, yellow = free stretch
+      ctx.fillStyle = item.aspectLocked ? '#ff69b4' : '#fecd39';
+      ctx.beginPath();
+      ctx.arc(item.w, item.h, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // rotate handle (above top edge)
+      ctx.strokeStyle = '#67FEBD';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(item.w / 2, 0);
+      ctx.lineTo(item.w / 2, -20);
+      ctx.stroke();
+
+      ctx.fillStyle = '#67FEBD';
+      ctx.beginPath();
+      ctx.arc(item.w / 2, -20, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    }
+
+    // loose images (a background, props...) are drawn BEHIND the character; G ghosts them
+    function drawImages() {
+      const faded = !playing && ghost;
+      images.forEach(item => {
+        ctx.save();
+        ctx.translate(item.x + item.w / 2, item.y + item.h / 2);
+        ctx.rotate(item.rotation);
+        ctx.translate(-item.w / 2, -item.h / 2);
+        ctx.globalAlpha = faded ? GHOST_ALPHA : 1;
+        ctx.drawImage(item.img, 0, 0, item.w, item.h);
+        ctx.restore();
+      });
+    }
+
+    // the selection box / handles of the picked loose image, drawn over everything so they stay visible
+    function drawImageSelection() {
+      if (playing || mode !== 'image') return;
+      const item = images[selectedIndex];
+      if (!item) return;
+      ctx.save();
+      ctx.translate(item.x + item.w / 2, item.y + item.h / 2);
+      ctx.rotate(item.rotation);
+      ctx.translate(-item.w / 2, -item.h / 2);
+      drawSelection(item);
+      ctx.restore();
+    }
+
+    function updateHud() {
+      if (playing) {
+        hud.dataset.mode = 'play';
+        hud.innerHTML = `<b>play</b><span class="frame">f${current + 1}/${frames.length}</span>` +
+                        `<span>${FPS}fps</span><span class="keys">space</span>`;
+        return;
+      }
+      let detail;
+      if (mode === 'rig') {
+        const j = rigDrag ? rigDrag.joint : hoverJoint;
+        detail = (j ? `<span>${j.name}</span>` : '') +
+                 `<span class="keys">${viewSel} view</span>`;
+      } else {
+        const item = images[selectedIndex];
+        detail = item
+          ? `<span>${item.name}</span><span>${selectedIndex + 1}/${images.length}</span>` +
+            (item.locked ? '<span class="locked">locked</span>' : '') +
+            (item.aspectLocked ? '' : '<span class="free">free ratio</span>')
+          : `<span>${images.length} images</span>`;
+      }
+      if (mode === 'image' && ghost) detail += '<span>ghost</span>';
+      const frameInfo = ready ? `<span class="frame">f${current + 1}/${frames.length}</span>` : '';
+      let onionInfo = '';
+      if (frames.length > 1) {
+        onionInfo = onion ? `<span class="onion">onion ${onionDepth}</span>` : '<span class="keys">onion off</span>';
+      }
+      let warn = pendingDelete ? '<span class="warn">press delete again to remove this frame</span>' : '';
+      if (missingSheets.length) warn += `<span class="warn">missing ${missingSheets.join(', ')}</span>`;
+      hud.dataset.mode = mode;
+      hud.innerHTML = `<b>${mode}</b>${frameInfo}${detail}${onionInfo}${warn}<span class="keys">tab</span>`;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+      drawImages();                // loose "image mode" images (background...) sit behind the character
+      if (!playing) drawOnion();   // neighbouring frames, tinted
+      drawParts(ctx, rig, 1);      // the character: body-part art pinned to the skeleton
+      if (!playing) drawRig();     // joint handles / optional bone lines over the art
+      drawImageSelection();
+      updateHud();
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  PANELS  (joint gaps + stretch & squash)
+     * ------------------------------------------------------------------ */
+
+    const panelInputs = { gap: {}, stretch: {} };   // slider elements, by key
+    const panelVals = { gap: {}, stretch: {} };     // their number read-outs
+    let linkGaps = true;
+    let linkStretch = true;
+
+    function sideKey(kind, side, name) { return side + name; }
+
+    // one row: label + Right slider + Left slider
+    // (single = a centre joint with only one slider, e.g. neck / waist: key is just the name)
+    function addPanelRow(body, kind, name, label, min, max, step, fmt, onInput, onChange, single) {
+      const row = body.querySelector('.panel-row');
+      const lbl = document.createElement('span');
+      lbl.className = 'lbl';
+      lbl.textContent = label;
+      row.appendChild(lbl);
+      for (const side of (single ? ['centre'] : ['right', 'left'])) {
+        const key = single ? name : side + name;
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = min; input.max = max; input.step = step;
+        const val = document.createElement('span');
+        val.className = 'val';
+        panelInputs[kind][key] = input;
+        panelVals[kind][key] = val;
+        input.addEventListener('input', () => {
+          const v = parseFloat(input.value);
+          onInput(key, v, side, name);
+          val.textContent = fmt(v);
+        });
+        input.addEventListener('change', () => { onChange(); input.blur(); });
+        if (single) input.style.gridColumn = '2 / span 3';   // one slider across the Right+Left columns
+        row.append(input, val);
+      }
+    }
+
+    function makePanelBody(body, linkLabel, onLink, onReset) {
+      body.innerHTML = '';
+      const tools = document.createElement('div');
+      tools.className = 'panel-tools';
+      const lab = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.addEventListener('change', () => { onLink(cb.checked); cb.blur(); });
+      lab.append(cb, document.createTextNode(linkLabel));
+      tools.appendChild(lab);
+      const extras = document.createElement('span');
+      extras.style.display = 'contents';
+      tools.appendChild(extras);
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.textContent = 'reset';
+      reset.addEventListener('click', () => { onReset(); reset.blur(); });
+      tools.appendChild(reset);
+      const row = document.createElement('div');
+      row.className = 'panel-row';
+      for (const t of ['', 'Right', 'Left']) {
+        const c = document.createElement('span');
+        c.className = t ? 'col' : 'lbl';
+        c.textContent = t;
+        row.appendChild(c);
+      }
+      body.append(tools, row);
+      return extras;
+    }
+
+    function buildPanels() {
+      /* -- joint gaps -- */
+      const gapBody = document.getElementById('gapBody');
+      makePanelBody(gapBody, 'link right + left',
+        on => { linkGaps = on; },
+        () => { GAP_KEYS.forEach(k => { gaps[k] = GAP_DEFAULT[k]; }); gapsChanged(true); });
+      const gapInput = (key, v, side, name) => {
+        if (side === 'centre') side = null;
+        gaps[key] = v;
+        if (linkGaps && side) {
+          const other = (side === 'right' ? 'left' : 'right') + name;
+          gaps[other] = v;
+          panelInputs.gap[other].value = v;
+          panelVals.gap[other].textContent = v + 'px';
+        }
+        gapsChanged(false);
+      };
+      const px = v => v + 'px';
+      addPanelRow(gapBody, 'gap', 'neck', 'Neck', 0, 30, 1, px, gapInput, saveGaps, true);
+      addPanelRow(gapBody, 'gap', 'Shoulder', 'Shoulders', 0, 30, 1, px, gapInput, saveGaps);
+      addPanelRow(gapBody, 'gap', 'Elbow', 'Elbows', 0, 30, 1, px, gapInput, saveGaps);
+      addPanelRow(gapBody, 'gap', 'Wrist', 'Wrists', 0, 30, 1, px, gapInput, saveGaps);
+      addPanelRow(gapBody, 'gap', 'waist', 'Waist', 0, 30, 1, px, gapInput, saveGaps, true);
+      addPanelRow(gapBody, 'gap', 'Hip', 'Hips', -50, 30, 1, px, gapInput, saveGaps);
+      addPanelRow(gapBody, 'gap', 'Knee', 'Knees', 0, 30, 1, px, gapInput, saveGaps);
+      addPanelRow(gapBody, 'gap', 'Ankle', 'Ankles', 0, 30, 1, px, gapInput, saveGaps);
+      const gapNote = document.createElement('div');
+      gapNote.className = 'panel-note';
+      gapNote.textContent = 'Extra space around each joint, in art pixels, on top of the gap already in the artwork (0 = as drawn). ' +
+                            'Slides the piece below the joint away from it (waist = hips/chest, neck = chest/head). ' +
+                            'Remembered in this browser; applies to every frame.';
+      gapBody.appendChild(gapNote);
+
+      /* -- stretch & squash -- */
+      const stBody = document.getElementById('stretchBody');
+      const extras = makePanelBody(stBody, 'link right + left',
+        on => { linkStretch = on; },
+        () => { stretchSel = unitStretch(); stretchChanged(true); });
+      const volLab = document.createElement('label');
+      const volCb = document.createElement('input');
+      volCb.type = 'checkbox';
+      volCb.checked = keepVolume;
+      volCb.addEventListener('change', () => { keepVolume = volCb.checked; volCb.blur(); dataVersion++; refreshAllThumbs(); draw(); });
+      volLab.append(volCb, document.createTextNode('keep volume (thinner when stretched)'));
+      extras.appendChild(volLab);
+      const stInput = (key, v, side, name) => {
+        stretchSel[key] = v / 100;
+        if (linkStretch) {
+          const other = (side === 'right' ? 'left' : 'right') + name;
+          stretchSel[other] = v / 100;
+          panelInputs.stretch[other].value = v;
+          panelVals.stretch[other].textContent = v + '%';
+        }
+        stretchChanged(false);
+      };
+      const pct = v => v + '%';
+      const lo = Math.round(STRETCH_MIN * 100);
+      const hi = Math.round(STRETCH_MAX * 100);
+      addPanelRow(stBody, 'stretch', 'UpperArm', 'Upper arm', lo, hi, 1, pct, stInput, commit);
+      addPanelRow(stBody, 'stretch', 'ForeArm',  'Forearm',   lo, hi, 1, pct, stInput, commit);
+      addPanelRow(stBody, 'stretch', 'Thigh',    'Thigh',     lo, hi, 1, pct, stInput, commit);
+      addPanelRow(stBody, 'stretch', 'Calf',     'Calf',      lo, hi, 1, pct, stInput, commit);
+      const stNote = document.createElement('div');
+      stNote.className = 'panel-note';
+      stNote.textContent = '100% = normal. Each frame remembers its own stretch, so you can stretch a limb on the ' +
+                           'in-between frames of a jump or a swing and squash it on impact. Right/Left = the character\u2019s own side.';
+      stBody.appendChild(stNote);
+
+      // clicking a panel header must not leave focus there (Space / arrows are animation shortcuts)
+      document.querySelectorAll('.panel summary').forEach(sm => {
+        sm.addEventListener('click', () => setTimeout(() => sm.blur(), 0));
+      });
+      syncPanels();
+    }
+
+    function syncPanels() {
+      if (!panelInputs.gap.rightElbow) return;
+      GAP_KEYS.forEach(k => {
+        panelInputs.gap[k].value = gaps[k];
+        panelVals.gap[k].textContent = gaps[k] + 'px';
+      });
+      for (const key in stretchSel) {
+        const pctv = Math.round(stretchSel[key] * 100);
+        if (!panelInputs.stretch[key]) continue;
+        panelInputs.stretch[key].value = pctv;
+        panelVals.stretch[key].textContent = pctv + '%';
+      }
+    }
+
+    function refreshAllThumbs() {
+      frames.forEach((_, i) => refreshThumb(i));
+    }
+
+    function gapsChanged(persist) {
+      applyLengths();
+      solveFK();
+      dataVersion++;
+      refreshAllThumbs();
+      if (persist) { saveGaps(); syncPanels(); }
+      draw();
+    }
+
+    function stretchChanged(commitNow) {
+      applyLengths();
+      solveFK();
+      if (commitNow) { commit(); syncPanels(); }
+      draw();
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  INPUT: RIG MODE
+     * ------------------------------------------------------------------ */
+
+    function rigMouseDown(x, y) {
+      const j = hitJoint(x, y);
+      if (!j) return;
+      rigDrag = { joint: j, dx: x - j.x, dy: y - j.y, angOff: 0 };
+      if (j.parent) {
+        // remember where on the bone's circle the cursor grabbed, so nothing jumps
+        rigDrag.angOff = wrap(Math.atan2(y - j.parent.y, x - j.parent.x) - j.frame);
+      }
+      canvas.style.cursor = 'grabbing';
+      draw();
+    }
+
+    function rigMouseMove(x, y) {
+      if (rigDrag) {
+        const j = rigDrag.joint;
+        if (!j.parent) {
+          // pelvis: translate the whole figure
+          j.x = x - rigDrag.dx;
+          j.y = y - rigDrag.dy;
+        } else {
+          // any other joint: swing on its parent at a fixed bone length;
+          // everything downstream comes along because angles are relative
+          const target = Math.atan2(y - j.parent.y, x - j.parent.x) - rigDrag.angOff;
+          const delta = wrap(target - j.frame);
+          (j.group ? groups[j.group] : [j]).forEach(m => { m.local += delta; });
+        }
+        solveFK();
+        draw();
+        return;
+      }
+      const h = hitJoint(x, y);
+      if (h !== hoverJoint) {
+        hoverJoint = h;
+        draw();
+      }
+      canvas.style.cursor = h ? 'grab' : 'default';
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  INPUT: IMAGE MODE
+     * ------------------------------------------------------------------ */
+
+    function imageMouseDown(x, y) {
+      if (selectedIndex !== -1) {
+        const item = images[selectedIndex];
+        if (!item.locked) {
+          if (hitResizeHandle(x, y)) {
+            isResizing = true;
+            resizeStartX = x;
+            resizeStartY = y;
+            resizeStartW = item.w;
+            resizeStartH = item.h;
+            // pin the top-left corner in world space so rotated images resize cleanly
+            const cos = Math.cos(item.rotation);
+            const sin = Math.sin(item.rotation);
+            resizeAnchorX = item.x + item.w / 2 - (item.w / 2) * cos + (item.h / 2) * sin;
+            resizeAnchorY = item.y + item.h / 2 - (item.w / 2) * sin - (item.h / 2) * cos;
+            return;
+          }
+          if (hitRotateHandle(x, y)) {
+            isRotating = true;
+            const cx = item.x + item.w / 2;
+            const cy = item.y + item.h / 2;
+            rotateStartAngle = Math.atan2(y - cy, x - cx);
+            rotateStartRotation = item.rotation;
+            return;
+          }
+        }
+      }
+
+      const idx = hitTest(x, y);
+      if (idx !== -1) {
+        selectedIndex = idx;
+        const item = images[idx];
+        if (!item.locked) {
+          isDragging = true;
+          dragOffsetX = x - item.x;
+          dragOffsetY = y - item.y;
+        } else {
+          isDragging = false;
+        }
+      } else {
+        selectedIndex = -1;
+        isDragging = false;
+        isResizing = false;
+        isRotating = false;
+      }
+      draw();
+    }
+
+    function imageMouseMove(x, y) {
+      const item = selectedIndex !== -1 ? images[selectedIndex] : null;
+
+      if (isDragging && item && !item.locked) {
+        item.x = x - dragOffsetX;
+        item.y = y - dragOffsetY;
+        draw();
+      } else if (isResizing && item && !item.locked) {
+        const cos = Math.cos(item.rotation);
+        const sin = Math.sin(item.rotation);
+        const dx = x - resizeStartX;
+        const dy = y - resizeStartY;
+        // mouse movement expressed in the image's own (rotated) axes
+        const localDx = dx * cos + dy * sin;
+        const localDy = -dx * sin + dy * cos;
+        let newW, newH;
+        if (item.aspectLocked) {
+          // slide the corner along the image's diagonal so the ratio never changes
+          const t = (localDx * resizeStartW + localDy * resizeStartH) /
+                    (resizeStartW * resizeStartW + resizeStartH * resizeStartH);
+          const scale = Math.max(1 + t, 30 / Math.min(resizeStartW, resizeStartH));
+          newW = resizeStartW * scale;
+          newH = resizeStartH * scale;
+        } else {
+          newW = Math.max(30, resizeStartW + localDx);
+          newH = Math.max(30, resizeStartH + localDy);
+        }
+        const cx = resizeAnchorX + (newW / 2) * cos - (newH / 2) * sin;
+        const cy = resizeAnchorY + (newW / 2) * sin + (newH / 2) * cos;
+        item.w = newW;
+        item.h = newH;
+        item.x = cx - newW / 2;
+        item.y = cy - newH / 2;
+        draw();
+      } else if (isRotating && item && !item.locked) {
+        const cx = item.x + item.w / 2;
+        const cy = item.y + item.h / 2;
+        const angle = Math.atan2(y - cy, x - cx);
+        item.rotation = rotateStartRotation + (angle - rotateStartAngle);
+        draw();
+      } else if (item && !item.locked) {
+        if (hitResizeHandle(x, y) || hitRotateHandle(x, y)) canvas.style.cursor = 'pointer';
+        else if (hitTest(x, y) === selectedIndex) canvas.style.cursor = 'grab';
+        else canvas.style.cursor = 'default';
+      } else {
+        canvas.style.cursor = 'default';
+      }
+    }
+
+    /* ------------------------------------------------------------------ *
+     *  INPUT: SHARED
+     * ------------------------------------------------------------------ */
+
+    function onMouseDown(e) {
+      e.preventDefault();
+      if (e.button === 2 || playing) return;
+      const { x, y } = toCanvasCoords(e);
+      if (mode === 'rig') rigMouseDown(x, y);
+      else imageMouseDown(x, y);
+    }
+
+    function onMouseMove(e) {
+      if (playing) return;
+      const { x, y } = toCanvasCoords(e);
+      if (mode === 'rig') rigMouseMove(x, y);
+      else imageMouseMove(x, y);
+    }
+
+    function onMouseUp() {
+      if (playing) return;
+      rigDrag = null;
+      isDragging = false;
+      isResizing = false;
+      isRotating = false;
+      commit();
+      if (mode === 'rig') canvas.style.cursor = hoverJoint ? 'grab' : 'default';
+      draw();
+    }
+
+    function onMouseLeave() {
+      hoverJoint = null;
+      onMouseUp();
+    }
+
+    function onContextMenu(e) {
+      e.preventDefault();
+      if (mode !== 'image' || playing) return;
+      const { x, y } = toCanvasCoords(e);
+      const idx = hitTest(x, y);
+      if (idx !== -1) {
+        const item = images[idx];
+        item.locked = !item.locked;
+        if (idx === selectedIndex && item.locked) {
+          isDragging = false;
+          isResizing = false;
+          isRotating = false;
+        }
+        selectedIndex = idx;
+      } else {
+        selectedIndex = -1;
+      }
+      draw();
+    }
+
+    function setMode(next) {
+      mode = next;
+      rigDrag = null;
+      hoverJoint = null;
+      isDragging = false;
+      isResizing = false;
+      isRotating = false;
+      canvas.style.cursor = 'default';
+      draw();
+    }
+
+    // z-order = array order (last = frontmost). The skeleton always stays underneath.
+    function moveLayer(step, toEnd) {
+      if (mode !== 'image' || selectedIndex === -1) return;
+      const last = images.length - 1;
+      const target = toEnd
+        ? (step > 0 ? last : 0)
+        : Math.max(0, Math.min(last, selectedIndex + step));
+      if (target === selectedIndex) return;
+      const [item] = images.splice(selectedIndex, 1);
+      images.splice(target, 0, item);
+      selectedIndex = target;
+      commit();
+      draw();
+    }
+
+    function onKeyDown(e) {
+      // don't hijack keys while a slider / checkbox has focus
+      if (e.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (playing) {
+        if (e.code === 'Space' || e.key === 'Escape') { e.preventDefault(); stopPlayback(); }
+        return;
+      }
+      if (pendingDelete && e.key !== 'Delete' && e.key !== 'Backspace' && e.key !== 'Shift') {
+        cancelDelete();
+        draw();
+      }
+      if (e.code === 'BracketRight') { moveLayer(1, e.shiftKey); return; }
+      if (e.code === 'BracketLeft')  { moveLayer(-1, e.shiftKey); return; }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const dir = e.key === 'ArrowLeft' ? -1 : 1;
+        if (e.shiftKey) moveFrame(dir);
+        else gotoFrame(current + dir);
+        return;
+      }
+      if (e.repeat) return;
+      const key = e.key.toLowerCase();
+      if (key === 'tab') {
+        e.preventDefault();
+        setMode(mode === 'rig' ? 'image' : 'rig');
+      } else if (key === 'b') {
+        showBones = !showBones;
+        draw();
+      } else if (key === 'v') {
+        setView(viewSel === 'front' ? 'side' : 'front');
+      } else if (key === 'g') {
+        ghost = !ghost;
+        draw();
+      } else if (key === 'r' && mode === 'rig') {
+        resetRig();
+        commit();
+        draw();
+      } else if (key === 'a' && mode === 'image' && selectedIndex !== -1) {
+        images[selectedIndex].aspectLocked = !images[selectedIndex].aspectLocked;
+        draw();
+      } else if (key === 'n') {
+        newFrame();
+      } else if (key === 'o') {
+        if (e.shiftKey) { onionDepth = (onionDepth % ONION_ALPHA.length) + 1; onion = true; }
+        else onion = !onion;
+        syncTimeline();
+        draw();
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        startPlayback();
+      } else if (key === 'delete' || key === 'backspace') {
+        e.preventDefault();
+        requestDelete();
+      }
+    }
+
+    function init() {
+      buildRig();
+      buildRest();
+      loadGaps();
+      applyLengths();
+      resetRig();
+      buildPanels();
+
+      canvas.addEventListener('mousedown', onMouseDown);
+      canvas.addEventListener('mousemove', onMouseMove);
+      canvas.addEventListener('mouseup', onMouseUp);
+      canvas.addEventListener('mouseleave', onMouseLeave);
+      canvas.addEventListener('contextmenu', onContextMenu);
+      window.addEventListener('keydown', onKeyDown);
+
+      loadSheets(() => {       // the two mannequin sheets first, then the loose "image mode" images
+        loadImages();
+      });
+      draw();
+    }
+
+    init();
+  })();
+</script>
+</body>
+</html> 
