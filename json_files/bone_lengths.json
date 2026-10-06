@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "description": "Bone lengths measured from the reference mannequin silhouette, for use with gait_angles.json.",
+    "units": "px",
+    "canvas": { "width": 800, "height": 800 },
+    "method": "Joint circle centers were detected by color in the 800x800 reference image. Each length is the straight-line distance between two joint centers.",
+    "symmetry": "The mannequin is symmetric, so left and right bones are identical. One value is stored per bone.",
+    "notes": "Lengths come from a front-view image where the limbs lie nearly in the picture plane, so they approximate true bone lengths. Only the lengths carry over to a side-view rig, not the joint positions."
+  },
+  "bones": {
+    "thigh":    { "length": 173.2, "from": "hip",      "to": "knee",  "angleKey": "thigh" },
+    "shin":     { "length": 147.0, "from": "knee",     "to": "ankle", "angleKey": "shin" },
+    "upperArm": { "length": 96.3,  "from": "shoulder", "to": "elbow", "angleKey": "upperArm" },
+    "forearm":  { "length": 50,  "from": "elbow",    "to": "wrist", "angleKey": "forearm" }
+  },
+  "derived": {
+    "legLength": 320.2,
+    "armLength": 176.0,
+    "shinToThighRatio": 0.85,
+    "forearmToUpperArmRatio": 0.83
+  },
+  "torso": {
+    "neckToChest": 67.0,
+    "chestToPelvis": 75.0,
+    "pelvisToHip": 32.9,
+    "shoulderToNeck": 51.7,
+    "hipWidth": 47,
+    "shoulderWidth": 103
+  },
+  "referenceJoints": {
+    "note": "Joint centers in the front-view reference image, in px. 'figureRight' is the character's right, which appears on the viewer's left.",
+    "neck":          { "x": 399.5, "y": 246.5 },
+    "chest":         { "x": 399.5, "y": 313.5 },
+    "pelvis":        { "x": 399.5, "y": 388.5 },
+    "shoulderRight": { "x": 348,   "y": 250.5 },
+    "shoulderLeft":  { "x": 451,   "y": 250.5 },
+    "elbowRight":    { "x": 323,   "y": 343.5 },
+    "elbowLeft":     { "x": 476,   "y": 343.5 },
+    "wristRight":    { "x": 296,   "y": 418.5 },
+    "wristLeft":     { "x": 503,   "y": 418.5 },
+    "hipRight":      { "x": 376,   "y": 411.5 },
+    "hipLeft":       { "x": 423,   "y": 411.5 },
+    "kneeRight":     { "x": 368,   "y": 584.5 },
+    "kneeLeft":      { "x": 431,   "y": 584.5 },
+    "ankleRight":    { "x": 367,   "y": 731.5 },
+    "ankleLeft":     { "x": 432,   "y": 731.5 }
+  }
+}
