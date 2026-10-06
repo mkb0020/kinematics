@@ -86,7 +86,7 @@ async function loadData(){
 }
 
 /* ---------- parameters ---------- */
-const BASE = { chestDepth:40, neckLen:26, headR:30, bgLight:true, bgGrid:true, gridSize:50, gridAlpha:.5, bootOn:true, art:true, skel:false, farTint:.22, neckTrim:12, nearLegOver:true, pelvisTilt:.85, headFollow:.4, neckW:26, soleOff:96.2, footLen:95, heelFrac:.259, footLag:0, lag:1.5, range:.5,
+const BASE = { chestDepth:40, neckLen:26, headR:30, bgLight:true, bgGrid:true, gridSize:50, gridAlpha:.5, bootOn:true, art:true, skel:false, farTint:.22, neckTrim:12, waistTrim:24, nearLegOver:true, pelvisTilt:.85, headFollow:.4, neckW:26, soleOff:96.2, footLen:95, heelFrac:.259, footLag:0, lag:1.5, range:.5,
   spPassing:1, spTakeoff:.7, spUp:.1, spContact:.35, spDown:.4,
   guides:false, joints:true, floor:true, scroll:1, zoom:1, lineW:6, tint:true,
   stomach:true, stomachWChest:44, stomachWPelvis:50, stomachColor:'#210250' };
@@ -148,7 +148,7 @@ const fv=(t,k)=>((FGRIDS[footMode()][S.cycle][t]||{})[k])||0;
    used when the file is missing. "Export config" writes the live slider values in this format;
    "Import config" loads one without needing a server. Missing or invalid keys are skipped, so partial configs are fine. */
 const CFG_GROUPS={
-  body:['chestDepth','neckLen','headR','neckW','neckTrim','pelvisTilt','headFollow','stomach','stomachWChest','stomachWPelvis','stomachColor'],
+  body:['chestDepth','neckLen','headR','neckW','neckTrim','waistTrim','pelvisTilt','headFollow','stomach','stomachWChest','stomachWPelvis','stomachColor'],
   motion:['range','lag','footLag'],
   poseSpeed:['spPassing','spTakeoff','spUp','spContact','spDown'],
   feet:['bootOn','soleOff','footLen','heelFrac'],
@@ -350,7 +350,7 @@ function solve(u){
   const sp=[Math.cos(P.spineAngle*R2D),-Math.sin(P.spineAngle*R2D)];
   const ch=[Math.cos(P.chestAngle*R2D),-Math.sin(P.chestAngle*R2D)];
   const nrm=[Math.sin(P.chestAngle*R2D),Math.cos(P.chestAngle*R2D)];   // chest-front normal
-  const rib=add(pelvis,sp,Tm.chestToPelvis*sc.t);
+  const rib=add(pelvis,sp,Math.max(0,Tm.chestToPelvis-P.waistTrim)*sc.t);   // waistTrim pulls the whole upper body down toward the pelvis (the art leaves a gap there)
   const shTop=add(rib,ch,Tm.neckToChest*sc.t);
   const rect=[add(rib,nrm,-P.chestDepth/2),add(rib,nrm,P.chestDepth/2),
               add(shTop,nrm,P.chestDepth/2),add(shTop,nrm,-P.chestDepth/2)];
@@ -827,6 +827,7 @@ const MENUS={
   {k:'headFollow',l:'Head follows neck',min:0,max:1,step:.05},
   {k:'neckW',l:'Neck width',min:6,max:50,step:1},
   {k:'neckTrim',l:'Neck shortening',min:0,max:40,step:1},
+  {k:'waistTrim',l:'Waist shortening',min:0,max:60,step:1},
   {k:'nearLegOver',l:'Near leg over pelvis',check:1}],
  'Pivots':[{pivots:1}]
 };

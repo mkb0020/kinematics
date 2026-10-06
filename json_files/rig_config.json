@@ -2,7 +2,7 @@
   "meta": {
     "name": "mannequin",
     "description": "Rig Lab slider defaults for one character.",
-    "exported": "2026-10-06T01:35:28.968Z"
+    "exported": "2026-10-06T02:17:17.775Z"
   },
   "shared": {
     "body": {
@@ -11,11 +11,12 @@
       "headR": 30,
       "neckW": 27,
       "neckTrim": 21,
+      "waistTrim": 24,
       "pelvisTilt": 0.85,
       "headFollow": 0.35,
       "stomach": true,
-      "stomachWChest": 45,
-      "stomachWPelvis": 56,
+      "stomachWChest": 77,
+      "stomachWPelvis": 50,
       "stomachColor": "#210250"
     },
     "motion": { "range": 0.5, "lag": 1.5, "footLag": 0 },
@@ -31,7 +32,7 @@
       "joints": true,
       "floor": true,
       "scroll": 1,
-      "zoom": 0.7,
+      "zoom": 1,
       "lineW": 6,
       "tint": true
     }
@@ -39,10 +40,10 @@
   "cycles": {
     "run": {
       "params": {
-        "spineAngle": 41,
-        "chestAngle": 44,
+        "spineAngle": 48,
+        "chestAngle": 45,
         "neckAngle": 50,
-        "cycleSec": 2,
+        "cycleSec": 0.99,
         "airtime": 14,
         "twist": 16,
         "hipTwist": 10,
@@ -80,10 +81,10 @@
   },
   "squashStretch": {
     "run": {
-      "passing": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": 0 },
-      "takeoff": { "fl": 2, "bl": 4, "fa": 3, "ba": 0, "t": 0 },
-      "up": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": 0 },
-      "contact": { "fl": -6, "bl": 0, "fa": 0, "ba": 0, "t": -2 }
+      "passing": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": -2 },
+      "takeoff": { "fl": 2, "bl": 4, "fa": 3, "ba": 0, "t": -2 },
+      "up": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": -2 },
+      "contact": { "fl": -6, "bl": 0, "fa": 0, "ba": 0, "t": -4 }
     },
     "walk": {
       "contact": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": 0 },
@@ -123,18 +124,18 @@
     }
   },
   "pivots": {
-    "hip": [396.5, 382],
-    "knee": [395.5, 527],
+    "hip": [395.5, 379],
+    "knee": [395.5, 531],
     "ankle": [385, 683.5],
-    "shoulder": [391.5, 196],
-    "elbow": [386, 286],
+    "shoulder": [387.5, 200],
+    "elbow": [385, 285],
     "wrist": [394, 358.5],
-    "rib": [389, 272.5],
+    "rib": [381, 277.5],
     "neck": [391, 191.5],
     "headPivot": [390, 152.5],
     "neckFrom": [388, 194],
     "neckTo": [392, 155],
     "stomachFrom": [408, 320],
-    "stomachTo": [402, 267]
+    "stomachTo": [404, 229.5]
   }
 }
