@@ -37,13 +37,14 @@
    ====================================================================== */
 const R2D = Math.PI / 180, FPS = 24;
 /* ======================= CHARACTER ART =======================
-   images/mannequin_side.png is a sheet of ten 800x800 frames, each part drawn IN PLACE on the mannequin:
+   SHEET_URL (assets/images/mannequin_side_with_hood.png) is a sheet of ten 800x800 frames, each part drawn IN PLACE on the mannequin:
    head, chest, pelvis, upperArm, forearm, handR, handL, thigh, calf, shoe.
    The page loads that file on start (so redrawing the sheet updates the rig); it must be served over http.
    Pivots are positions inside the 800x800 frame, measured from the mannequin's gray joint circles; the rig maps each
    part's own pivot-to-pivot axis onto the matching skeleton bone (rotating and stretching it along the bone). */
+const SHEET_URL='assets/images/mannequin_side_with_hood.png';   // the head frame is the hooded head; every other frame matches mannequin_side.png
 const ART_NAMES=["head", "chest", "pelvis", "upperArm", "forearm", "handR", "handL", "thigh", "calf", "shoe"];
-const ART_BOX={"head": [332, 41, 143, 147], "chest": [332, 162, 141, 146], "pelvis": [317, 281, 144, 164], "upperArm": [340, 163, 87, 169], "forearm": [345, 259, 97, 157], "handR": [364, 354, 91, 94], "handL": [365, 353, 90, 93], "thigh": [325, 328, 132, 242], "calf": [331, 502, 100, 220], "shoe": [327, 640, 154, 160]};   // [x,y,w,h] crop of each frame (bbox + margin)
+const ART_BOX={"head": [298, 22, 179, 203], "chest": [332, 162, 141, 146], "pelvis": [317, 281, 144, 164], "upperArm": [340, 163, 87, 169], "forearm": [345, 259, 97, 157], "handR": [364, 354, 91, 94], "handL": [365, 353, 90, 93], "thigh": [325, 328, 132, 242], "calf": [331, 502, 100, 220], "shoe": [327, 640, 154, 160]};   // [x,y,w,h] crop of each frame (bbox + margin)
 const ART_PIV={
   hip:[393.5,365.5], knee:[384.5,533.6], ankle:[383.1,685.3],        // gray knee ball / ankle circle; hip = 320.2px above ankle
   shoulder:[383.0,211.5], elbow:[383.7,296.7], wrist:[401.9,386.3],  // elbow / wrist gray circles; shoulder = centre of the arm cap
@@ -429,9 +430,9 @@ function loadArt(){
   return new Promise(res=>{
     const fail=m=>{ artLabel='not found'; showLoadError(new Error(m)); res(); };
     const im=new Image();
-    im.onload=()=>{ if(im.naturalWidth===8000&&im.naturalHeight===800){buildParts(im,'assets/images/mannequin_side.png');res();} else fail('assets/images/mannequin_side.png must be 8000x800 (ten 800x800 frames), got '+im.naturalWidth+'x'+im.naturalHeight); };
-    im.onerror=()=>fail('could not load assets/images/mannequin_side.png');
-    im.src='assets/images/mannequin_side.png';
+    im.onload=()=>{ if(im.naturalWidth===8000&&im.naturalHeight===800){buildParts(im,SHEET_URL);res();} else fail(SHEET_URL+' must be 8000x800 (ten 800x800 frames), got '+im.naturalWidth+'x'+im.naturalHeight); };
+    im.onerror=()=>fail('could not load '+SHEET_URL);
+    im.src=SHEET_URL;
   });
 }
 function setArtLengths(){   // skeleton lengths follow the drawn character, so no part is stretched to a stale number
@@ -622,18 +623,19 @@ function drawCharacter(r){
   /* pelvis tilts a fraction of the spine lean so the hips do not fold with the torso */
   placePart('pelvis',V.hip,r.pelvis,P.pelvisTilt*(90-P.spineAngle)*R2D,1,null,false);
   if(P.nearLegOver) drawLegArt(G.R,false);   // near (right) leg in front of the pelvis, like the near arm over the chest
-  /* neck (plain black line for now) + head, then chest over both */
+  /* neck (plain black line for now), then chest + near arm, then the hooded head over them */
   const nd=[Math.sin(P.neckAngle*R2D),-Math.cos(P.neckAngle*R2D)], hp=add(add(r.shTop,nd,ART_NECK-P.neckTrim),[P.headJut*r.lc,-P.headBob*r.lc]);
   const shC=add(r.shTop,[Math.cos(P.chestAngle*R2D),-Math.sin(P.chestAngle*R2D)],-12), chRot=limbRot(V.rib,V.shoulder,r.rib,shC), hdRot=P.headFollow*P.neckAngle*R2D;
   const n0=mapPt(V.rib,r.rib,chRot,V.neckFrom), n1=mapPt(V.headPivot,hp,hdRot,V.neckTo);
   ctx.save();ctx.lineCap='round';ctx.strokeStyle='#000';ctx.lineWidth=P.neckW;ctx.beginPath();ctx.moveTo(n0[0],n0[1]);ctx.lineTo(n1[0],n1[1]);ctx.stroke();ctx.restore();
-  placePart('head',V.headPivot,hp,hdRot,1,null,false);
   limbPart('chest',V.rib,V.shoulder,r.rib,shC,false);
   /* near arm in front of the chest */
   {const a=A.R; const fr=Math.atan2(V.wrist[0]-V.elbow[0],V.wrist[1]-V.elbow[1])-Math.atan2(a.wrist[0]-a.elbow[0],a.wrist[1]-a.elbow[1]);
    placePart('handR',V.wrist,a.wrist,fr,1,null,false);
    limbPart('forearm',V.elbow,V.wrist,a.elbow,a.wrist,false);
    limbPart('upperArm',V.shoulder,V.elbow,a.root,a.elbow,false);}
+  /* hooded head last: the cowl drapes over the chest and the near shoulder (the hands never reach the hood in the run or walk) */
+  placePart('head',V.headPivot,hp,hdRot,1,null,false);
 }
 function drawArm(a,col){
   seg(a.root,a.elbow,col,P.lineW*.85);seg(a.elbow,a.wrist,col,P.lineW*.85);
