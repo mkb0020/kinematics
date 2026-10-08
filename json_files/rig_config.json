@@ -43,7 +43,7 @@
         "spineAngle": 59,
         "chestAngle": 52,
         "neckAngle": 50,
-        "cycleSec": 1.01,
+        "cycleSec": 2.0,
         "airtime": 14,
         "twist": 20,
         "hipTwist": 13,
@@ -81,10 +81,10 @@
   },
   "squashStretch": {
     "run": {
-      "passing": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": -2 },
+      "passing": { "fl": -3, "bl": 0, "fa": 0, "ba": 0, "t": -2 },
       "takeoff": { "fl": 2, "bl": 4, "fa": 3, "ba": 0, "t": -2 },
       "up": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": -2 },
-      "contact": { "fl": -7, "bl": 0, "fa": 0, "ba": 0, "t": -5 }
+      "contact": { "fl": -7, "bl": 0, "fa": -5, "ba": -2, "t": -5 }
     },
     "walk": {
       "contact": { "fl": 0, "bl": 0, "fa": 0, "ba": 0, "t": 0 },

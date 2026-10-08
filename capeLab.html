@@ -69,7 +69,7 @@ const B = {            // BLOB BODY
   jumpV: 1000, gravity: 2800, dashMul: 1.7,
 };
 const C = {            // CAPE SIM (WORLD PX; SEE ALSO anti-curl BLOCK)
-  segments: 14, segLen: 9, gravity: 1800, drag: 1.2, nDrag: 9, tDrag: 0.4,
+  segments: 14, segLen: 14, gravity: 1800, drag: 1.2, nDrag: 9, tDrag: 0.4,
   lift: 0.55, flutter: 260, backBias: 0, wind: 0,
   hangDeg: 55, sag: 0.55, vRef: 500, restPull: 45,
   iterations: 8, bend: 0.35, step: 1 / 120, maxSteps: 6,
@@ -85,6 +85,10 @@ const L = {            // LOOK
   w1: 54, taper: 1.0, ripple: 0.06, split: 0.55,
   top: "#1d54ed", bottom: "#1a4fda", rim: "#1078f0", dark: "#1040b8",
   rimW: 3, folds: true, layer: "behind",
+  // GHOST TAIL (DISSOLVE). disStart: 0 = ROOT, 1 = HEM. disAmt: HOW GONE THE HEM GETS (1 = FULLY).
+  dis: true, disStart: 0.62, disAmt: 0.9, disCell: 14, disEdge: 0.22, disFlow: 70, disSpeed: 0.5, disFade: 0.3, disGlow: 1.0,
+  mode: "tendrils", tCount: 5, tSplit: 0.4, tAmp: 28, tSpeed: 5, tSpread: 0.45, tTaper: 0.8, tOverlap: 0.35, tLenVar: 0.3, tWaves: 1.25, tIdle: 0.45, tGain: 0.9,
+  disSparks: 0.3, disColA: "#c8fcff", disColB: "#dc4ce8",
 };
 const PIN = { ax: 389.5, ay: 461.5, bx: 459.5, by: 608.5 };   // THE TWO PINK MARKERS: TOP + BOTTOM OF THE CLOAK'S BACK EDGE (ART PX). 1-PIN MODE USES THEIR MIDPOINT. IN DEBUG MODE (G) DRAG THE DOTS.
 
@@ -465,7 +469,190 @@ function drawBackground() {
   for (let x = Math.floor(cam.x / 400) * 400; x < cam.x + W; x += 400) ctx.fillText(Math.round(x / 100) + "m", x - cam.x + 3, groundY + 14);
 }
 
-function drawCape() { if (cape.chains && cape.chains.length === 2) drawStrip(); else drawRibbon(); }
+/* ---------- GHOST TAIL: WEBGL CAPE STRIP + DISSOLVE (PORT OF index.html's DISSOLVE_FRAG) ----------
+   THE CAPE STRIP IS DRAWN AS A TEXTURED-STYLE MESH (UV: u ACROSS 0..1 TOP->BOTTOM EDGE, v ALONG 0..1 ROOT->HEM) INTO AN
+   OFFSCREEN WEBGL CANVAS, THEN COMPOSITED ONTO THE 2D CANVAS SO THE "BEHIND / IN FRONT OF BLOB" LAYERING STILL WORKS.
+   THE DISSOLVE THRESHOLD IS A FUNCTION OF v: NOTHING GONE ABOVE disStart, EVERYTHING GONE AT THE HEM (x disAmt).
+   THE NOISE IS ANCHORED TO THE CLOTH (px ALONG / ACROSS IT) AND SCROLLS TOWARD THE HEM, SO THE BURN FRONT LICKS OFF THE TAIL. */
+const GHOST_VERT = `
+attribute vec2 a_pos; attribute vec2 a_uv; attribute vec2 a_sh; attribute vec2 a_ed;
+uniform vec2 u_res; varying vec2 v_uv; varying vec2 v_sh; varying vec2 v_ed;
+void main(){ v_uv=a_uv; v_sh=a_sh; v_ed=a_ed; gl_Position=vec4(a_pos/u_res*2.0-1.0, 0.0, 1.0)*vec4(1.0,-1.0,1.0,1.0); }`;
+const GHOST_FRAG = `
+precision highp float;
+varying vec2 v_uv; varying vec2 v_sh; varying vec2 v_ed;
+uniform vec3 u_top, u_bot, u_rim, u_dark, u_edgeA, u_edgeB;
+uniform float u_split, u_rimW, u_folds, u_wid, u_len, u_time, u_endRim;
+uniform float u_on, u_start, u_amt, u_cell, u_edge, u_flow, u_fade, u_glow;
+float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); vec2 u=f*f*(3.0-2.0*f);
+  return mix(mix(hash21(i),hash21(i+vec2(1.0,0.0)),u.x), mix(hash21(i+vec2(0.0,1.0)),hash21(i+vec2(1.0,1.0)),u.x), u.y); }
+void main(){
+  float u=v_uv.x, v=v_uv.y;
+  float sp=smoothstep(u_split-0.01,u_split+0.01,u);
+  vec3 col=mix(mix(u_top,u_dark,v*0.25), mix(u_bot,u_dark,v*0.45), sp);
+  col=mix(col,u_dark,clamp(v_sh.x,0.0,1.0)*0.55);
+  col=mix(col,u_dark,v_sh.y*0.6);
+  if(u_folds>0.5){ float f=min(abs(u-0.3),abs(u-0.8))*u_wid; col=mix(col,u_dark*0.35,(1.0-smoothstep(0.4,1.1,f))*0.22); }
+  float dA=v_ed.x*v_ed.y, dB=(1.0-v_ed.x)*v_ed.y, dE=u_endRim>0.5?(1.0-v)*u_len:1e4;   // v_ed = (LOCAL ACROSS 0..1, LOCAL WIDTH PX): TENDRILS GET THEIR OWN SIDE RIMS
+  float rA=1.0-smoothstep(u_rimW*0.5-0.5,u_rimW*0.5+0.5,dA);
+  float rB=max(1.0-smoothstep(u_rimW*0.5-0.5,u_rimW*0.5+0.5,dB), 1.0-smoothstep(u_rimW*0.5-0.5,u_rimW*0.5+0.5,dE));
+  col=mix(col,u_rim,rA); col=mix(col,u_dark,rB);
+  float a=1.0;
+  if(u_on>0.5){
+    float t=clamp((v-u_start)/max(1.0-u_start,0.001),0.0,1.0);
+    vec2 px=vec2(v*u_len - u_time*u_flow, u*u_wid);
+    float n=vnoise(px/u_cell)*0.65+vnoise(px/(u_cell*0.4)+17.0)*0.35;
+    n=clamp((n-0.18)/0.64,0.0,1.0);
+    float amount=t*u_amt;
+    float thr=amount*(1.0+u_edge)-u_edge;
+    if(n<thr) discard;
+    float band=(n-thr)/u_edge;
+    if(band<1.0 && t>0.0){ col=mix(u_edgeA,u_edgeB,band)*(1.0+0.6*u_glow*(1.0-band)); }
+    a*=1.0-u_fade*t;
+  }
+  gl_FragColor=vec4(col*a,a);
+}`;
+const ghost = { gl: null, tried: false, n: 0, K: 9 };
+function ghostInit() {
+  ghost.tried = true;
+  try {
+    const cv = document.createElement("canvas"), gl = cv.getContext("webgl", { premultipliedAlpha: true, alpha: true, antialias: true });
+    if (!gl) return;
+    const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
+    const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, GHOST_VERT)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, GHOST_FRAG)); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+    ghost.cv = cv; ghost.gl = gl; ghost.pr = pr; ghost.vb = gl.createBuffer(); ghost.ib = gl.createBuffer(); ghost.U = {};
+    ghost.loc = { pos: gl.getAttribLocation(pr, "a_pos"), uv: gl.getAttribLocation(pr, "a_uv"), sh: gl.getAttribLocation(pr, "a_sh"), ed: gl.getAttribLocation(pr, "a_ed") };
+  } catch (e) { console.warn("ghost tail disabled:", e.message); ghost.gl = null; }
+}
+const ghostU = (name) => { if (!(name in ghost.U)) ghost.U[name] = ghost.gl.getUniformLocation(ghost.pr, name); return ghost.U[name]; };
+const speedNorm = () => Math.min(1.5, Math.hypot(cape.vel.x, cape.vel.y) / C.vRef);
+function ghostStart() { return clamp(L.disStart - L.disSpeed * speedNorm() * 0.5, 0, 0.98); }   // FASTER = THE DISSOLVE CREEPS UP THE CAPE
+
+function drawStripGL() {   // RETURNS false IF WEBGL ISN'T AVAILABLE (CALLER FALLS BACK TO THE FLAT CANVAS-2D STRIP)
+  if (!ghost.tried) ghostInit();
+  const gl = ghost.gl; if (!gl) return false;
+  const A = cape.chains[0].p, Bp = cape.chains[1].p, n = A.length, K = ghost.K;
+  if (n < 3) return true;
+  const cw = Math.round(W * DPR), ch = Math.round(H * DPR);
+  if (ghost.cv.width !== cw || ghost.cv.height !== ch) { ghost.cv.width = cw; ghost.cv.height = ch; }
+  gl.viewport(0, 0, cw, ch); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+  let sg = 0; for (let i = 0; i < n - 1; i++) sg += Math.sign(quadArea(A, Bp, i)); const s0 = sg >= 0 ? 1 : -1;
+  // WORLD -> SCREEN: SAME TRANSFORM THE 2D PATH GETS (CAMERA SCROLL + OPTIONAL MIRROR SQUASH ON TURNS)
+  const camX = Math.round(cam.x);
+  let mir = 1; if (C.turnMode === "mirror" && blob.turnT < 1) { const e = blob.turnT * blob.turnT * (3 - 2 * blob.turnT); mir = lerp(-1, 1, e); }
+  const tend = L.mode === "tendrils";
+  const T = clamp(Math.round(L.tCount), 2, 9), M = 18, KT = 3;
+  const iS = tend ? clamp(Math.round(L.tSplit * (n - 1)), 2, n - 2) : n - 1;          // LAST ROW OF THE SOLID CLOTH BODY (TENDRILS TAKE OVER FROM HERE)
+  const nBody = n * K, nVert = nBody + (tend ? T * M * KT : 0);
+  const data = new Float32Array(nVert * 8); let o = 0, wsum = 0;
+  const put = (x, y, u, v, sh, bk, lu, lw) => { data[o++] = (blob.x + mir * (x - blob.x) - camX) * DPR; data[o++] = y * DPR; data[o++] = u; data[o++] = v; data[o++] = sh; data[o++] = bk; data[o++] = lu; data[o++] = lw; };
+  for (let i = 0; i < n; i++) {
+    const fold = clamp((foldAt(A, i) + foldAt(Bp, i)) / 2 / 0.7, 0, 1);
+    const back = i < n - 1 ? (quadArea(A, Bp, i) * s0 < 0 ? 1 : 0) : (quadArea(A, Bp, i - 1) * s0 < 0 ? 1 : 0);
+    const wr = Math.hypot(A[i].x - Bp[i].x, A[i].y - Bp[i].y); wsum += wr;
+    for (let j = 0; j < K; j++) {
+      const u = j / (K - 1);
+      put(lerp(A[i].x, Bp[i].x, u), lerp(A[i].y, Bp[i].y, u), u, i / (n - 1), fold, back, u, wr);
+    }
+  }
+  if (tend) {   // TENDRILS: EACH ONE FOLLOWS THE CLOTH SPINE AT ITS SLICE OF THE WIDTH, WITH A TRAVELLING SINE OFFSET THAT GROWS ROOT -> TIP, AND TAPERS TO A POINT
+    const rowPt = (r, u) => { const i = Math.min(n - 2, Math.floor(r)), f = r - i; const ax = lerp(A[i].x, A[i + 1].x, f), ay = lerp(A[i].y, A[i + 1].y, f), bx = lerp(Bp[i].x, Bp[i + 1].x, f), by = lerp(Bp[i].y, Bp[i + 1].y, f); return { x: lerp(ax, bx, u), y: lerp(ay, by, u), cx: bx - ax, cy: by - ay }; };
+    const ampScale = Math.min(1.8, L.tIdle + L.tGain * speedNorm());
+    const rootW = Math.hypot(A[iS].x - Bp[iS].x, A[iS].y - Bp[iS].y);
+    for (let j = 0; j < T; j++) {
+      const tp = tendrilParams(j, T), uj = (j + 0.5) / T, span = (1 + L.tOverlap) / T;
+      const rootHalf = Math.max(1, rootW * span * 0.5), lf = tp.len, rows = (n - 1 - iS) * lf;
+      let pt = null;
+      for (let m = 0; m < M; m++) {
+        const t = m / (M - 1), r = iS + t * rows;
+        const c = rowPt(r, uj), c2 = rowPt(Math.min(n - 1.001, r + 0.5), uj), c0 = rowPt(Math.max(iS, r - 0.5), uj);
+        let tx = c2.x - c0.x, ty = c2.y - c0.y; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+        const off = L.tAmp * tp.amp * ampScale * Math.pow(t, 1.25) * Math.sin(TAU * tp.waves * t - tendril.phase[j]);
+        const px = c.x - ty * off, py = c.y + tx * off;
+        const cl = Math.hypot(c.cx, c.cy) || 1, cxn = c.cx / cl, cyn = c.cy / cl;
+        const hw = rootHalf * Math.pow(Math.max(0, 1 - t), L.tTaper);
+        const gv = r / (n - 1), shade = tp.shade;
+        for (let q = 0; q < KT; q++) {
+          const lu = q / (KT - 1), side = (lu - 0.5) * 2 * hw;
+          put(px + cxn * side, py + cyn * side, clamp(uj + (lu - 0.5) * span, 0, 1), gv, shade, 0, lu, Math.max(0.01, hw * 2));
+        }
+      }
+    }
+  }
+  const key = n + "_" + (tend ? T : 0) + "_" + M;
+  if (ghost.key !== key) {
+    const idx = []; for (let i = 0; i < n - 1; i++) for (let j = 0; j < K - 1; j++) { const a = i * K + j, b = a + 1, c = a + K, d = c + 1; idx.push(a, b, c, b, d, c); }
+    ghost.bodyAll = idx.length;
+    if (tend) for (let j = 0; j < T; j++) for (let m = 0; m < M - 1; m++) for (let q = 0; q < KT - 1; q++) { const a = nBody + (j * M + m) * KT + q, b = a + 1, c = a + KT, d = c + 1; idx.push(a, b, c, b, d, c); }
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ghost.ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW); ghost.key = key; ghost.count = idx.length;
+  }
+  gl.useProgram(ghost.pr);
+  gl.bindBuffer(gl.ARRAY_BUFFER, ghost.vb); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+  const st = 32, lc = ghost.loc;
+  gl.enableVertexAttribArray(lc.pos); gl.vertexAttribPointer(lc.pos, 2, gl.FLOAT, false, st, 0);
+  gl.enableVertexAttribArray(lc.uv); gl.vertexAttribPointer(lc.uv, 2, gl.FLOAT, false, st, 8);
+  gl.enableVertexAttribArray(lc.sh); gl.vertexAttribPointer(lc.sh, 2, gl.FLOAT, false, st, 16);
+  gl.enableVertexAttribArray(lc.ed); gl.vertexAttribPointer(lc.ed, 2, gl.FLOAT, false, st, 24);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ghost.ib);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);                      // PREMULTIPLIED OUTPUT
+  const c3 = (h) => hexRGB(h).map((v) => v / 255), e3 = (h) => hexRGB(h).map((v) => v / 255);
+  gl.uniform2f(ghostU("u_res"), cw, ch);
+  gl.uniform3fv(ghostU("u_top"), c3(L.top)); gl.uniform3fv(ghostU("u_bot"), c3(L.bottom)); gl.uniform3fv(ghostU("u_rim"), c3(L.rim)); gl.uniform3fv(ghostU("u_dark"), c3(L.dark));
+  gl.uniform3fv(ghostU("u_edgeA"), e3(L.disColA)); gl.uniform3fv(ghostU("u_edgeB"), e3(L.disColB));
+  gl.uniform1f(ghostU("u_split"), L.split); gl.uniform1f(ghostU("u_rimW"), L.rimW); gl.uniform1f(ghostU("u_folds"), L.folds ? 1 : 0);
+  gl.uniform1f(ghostU("u_wid"), Math.max(1, (wsum / n) * DPR / DPR)); gl.uniform1f(ghostU("u_len"), (n - 1) * C.segLen);
+  gl.uniform1f(ghostU("u_time"), cape.t || 0); gl.uniform1f(ghostU("u_endRim"), tend ? 0 : 1);
+  gl.uniform1f(ghostU("u_on"), L.dis ? 1 : 0); gl.uniform1f(ghostU("u_start"), ghostStart()); gl.uniform1f(ghostU("u_amt"), L.disAmt);
+  gl.uniform1f(ghostU("u_cell"), Math.max(2, L.disCell)); gl.uniform1f(ghostU("u_edge"), Math.max(0.01, L.disEdge));
+  gl.uniform1f(ghostU("u_flow"), L.disFlow); gl.uniform1f(ghostU("u_fade"), L.disFade); gl.uniform1f(ghostU("u_glow"), L.disGlow);
+  const bodyIdx = tend ? iS * (K - 1) * 6 : ghost.bodyAll;
+  gl.drawElements(gl.TRIANGLES, bodyIdx, gl.UNSIGNED_SHORT, 0);
+  if (tend) gl.drawElements(gl.TRIANGLES, ghost.count - ghost.bodyAll, gl.UNSIGNED_SHORT, ghost.bodyAll * 2);
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(ghost.cv, 0, 0); ctx.restore();   // 1:1 DEVICE PIXELS
+  return true;
+}
+
+/* ---------- TENDRILS: PER-BLADE RANDOM-BUT-FIXED PARAMS + ACCUMULATED PHASE (SO SPEED CHANGES NEVER JUMP THE WAVE) ---------- */
+const tendril = { phase: new Array(12).fill(0) };
+const hsh = (j, s) => { const x = Math.sin(j * 127.1 + s * 311.7) * 43758.5453; return x - Math.floor(x); };
+function tendrilParams(j, T) {
+  const mid = 1 - Math.abs((j + 0.5) / T - 0.5) * 2;                                       // CENTRE BLADES RUN A BIT LONGER, EDGES SHORTER
+  return {
+    amp: 0.7 + 0.6 * hsh(j, 1), waves: L.tWaves * (0.8 + 0.5 * hsh(j, 2)),
+    len: clamp(1 - L.tLenVar * (0.6 * hsh(j, 3) + 0.4 * (1 - mid)), 0.3, 1),
+    shade: 0.1 + 0.55 * hsh(j, 4),                                                          // DARKER BLADES READ AS FURTHER BACK
+    speed: L.tSpeed * (1 + L.tSpread * (hsh(j, 5) * 2 - 1)),
+  };
+}
+function tendrilStep(dt) { const T = clamp(Math.round(L.tCount), 2, 9), boost = 1 + 0.8 * speedNorm(); for (let j = 0; j < T; j++) tendril.phase[j] += dt * tendrilParams(j, T).speed * boost; }
+
+/* ---------- SPARKS: TINY EMBERS SHED FROM THE DISSOLVING TAIL (2D, ADDITIVE) ---------- */
+const sparks = [];
+function sparksStep(dt) {
+  if (!L.dis || !cape.chains || cape.chains.length !== 2 || dt <= 0) { sparks.length = 0; return; }
+  const A = cape.chains[0].p, Bp = cape.chains[1].p, n = A.length, st = ghostStart();
+  let spawn = L.disSparks * 60 * dt * (0.4 + speedNorm());
+  while (spawn > 0 && sparks.length < 160) {
+    if (Math.random() > spawn) break; spawn -= 1;
+    const v = lerp(st, 1, Math.pow(Math.random(), 0.6)) * (n - 1), i = Math.min(n - 2, Math.floor(v)), f = v - i, u = Math.random();
+    const ax = lerp(A[i].x, A[i + 1].x, f), ay = lerp(A[i].y, A[i + 1].y, f), bx = lerp(Bp[i].x, Bp[i + 1].x, f), by = lerp(Bp[i].y, Bp[i + 1].y, f);
+    sparks.push({ x: lerp(ax, bx, u), y: lerp(ay, by, u), vx: cape.vel.x * 0.25 + (Math.random() - 0.5) * 50, vy: -20 - Math.random() * 70, life: 0.5 + Math.random() * 0.6, age: 0, hot: Math.random() });
+  }
+  for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.age += dt; if (s.age >= s.life) { sparks.splice(i, 1); continue; } s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= 1 - 1.5 * dt; s.vy -= 20 * dt; }
+}
+function drawSparks() {
+  if (!sparks.length) return;
+  ctx.save(); ctx.globalCompositeOperation = "lighter";
+  for (const s of sparks) { const t = s.age / s.life, r = 2.2 * (1 - t) + 0.6; ctx.globalAlpha = (1 - t) * 0.9; ctx.fillStyle = s.hot > 0.5 ? L.disColA : L.disColB; ctx.fillRect(s.x - r, s.y - r, r * 2, r * 2); }
+  ctx.restore();
+}
+
+function drawCape() {
+  if (cape.chains && cape.chains.length === 2) { if (!drawStripGL()) drawStrip(); drawSparks(); }
+  else drawRibbon();
+}
 
 function drawRibbon() { // 1 PIN: THE SPINE GETS A WIDTH PERPENDICULAR TO ITS OWN DIRECTION
   const Pt = cape.p, n = Pt.length;
@@ -706,6 +893,35 @@ function buildPanel() {
   select(s, L, "layer", "cape layer", [["behind", "behind blob"], ["front", "in front of blob"]]);
   color(s, L, "top", "top colour"); color(s, L, "bottom", "bottom colour"); color(s, L, "rim", "rim colour"); color(s, L, "dark", "shade colour");
 
+  s = section("Tendrils", true);
+  hint(s, "THE SOLID CLOTH BODY RUNS DOWN TO 'SPLIT AT'; BELOW THAT THE CAPE FANS INTO TAPERED TENDRILS THAT RIDE THE VERLET SPINE. EACH GETS A TRAVELLING SINE (OFFSET GROWS ROOT -> TIP) WITH ITS OWN SPEED, WAVELENGTH, PHASE AND LENGTH. 2-PIN MODE ONLY.");
+  select(s, L, "mode", "cape render", [["tendrils", "body + tendrils"], ["strip", "solid strip"]]);
+  slider(s, L, "tCount", "tendrils", 2, 9, 1);
+  slider(s, L, "tSplit", "split at (0 root - 1 hem)", 0.15, 0.9, 0.01);
+  slider(s, L, "tAmp", "wave amplitude (px)", 0, 70, 1);
+  slider(s, L, "tWaves", "waves per tendril", 0.3, 3, 0.05);
+  slider(s, L, "tSpeed", "wave speed (rad/s)", 0, 14, 0.1);
+  slider(s, L, "tSpread", "speed variation", 0, 1, 0.01);
+  slider(s, L, "tIdle", "idle sway", 0, 1.5, 0.01);
+  slider(s, L, "tGain", "speed adds sway", 0, 2, 0.01);
+  slider(s, L, "tTaper", "point sharpness", 0.3, 2.5, 0.05);
+  slider(s, L, "tOverlap", "blade overlap", 0, 1, 0.01);
+  slider(s, L, "tLenVar", "length variation", 0, 0.7, 0.01);
+
+  s = section("Ghost tail (dissolve)", true);
+  hint(s, "THE SPAWN-DISSOLVE SHADER, RUN ALONG THE CAPE: NOTHING IS EATEN BEFORE 'STARTS AT', THE HEM IS FULLY GONE. THE NOISE DRIFTS TOWARD THE HEM SO THE BURN FRONT LICKS OFF THE TAIL. 2-PIN MODE ONLY (1-PIN RIBBON STAYS FLAT).");
+  check(s, L, "dis", "dissolve on");
+  slider(s, L, "disStart", "starts at (0 root - 1 hem)", 0, 0.95, 0.01);
+  slider(s, L, "disAmt", "how gone at hem", 0, 1, 0.01);
+  slider(s, L, "disSpeed", "speed pushes start up", 0, 1.5, 0.05);
+  slider(s, L, "disCell", "noise cell (px)", 3, 40, 1);
+  slider(s, L, "disEdge", "glow band width", 0.02, 0.6, 0.01);
+  slider(s, L, "disGlow", "glow boost", 0, 2, 0.05);
+  slider(s, L, "disFlow", "noise drift (px/s)", -200, 300, 5);
+  slider(s, L, "disFade", "alpha fade at hem", 0, 1, 0.01);
+  slider(s, L, "disSparks", "sparks", 0, 2, 0.05);
+  color(s, L, "disColA", "glow inner"); color(s, L, "disColB", "glow outer");
+
   s = section("Blob");
   slider(s, B, "scale", "scale", 0.3, 1, 0.01);
   slider(s, B, "maxSpeed", "max speed", 200, 1200, 10);
@@ -725,7 +941,7 @@ let last = performance.now();
 function frame(now) {
   const raw = Math.min(0.05, (now - last) / 1000); last = now;
   ui.fps = lerp(ui.fps, 1 / Math.max(raw, 1e-4), 0.05);
-  if (!ui.paused) update(raw * ui.timeScale);
+  if (!ui.paused) { update(raw * ui.timeScale); sparksStep(raw * ui.timeScale); tendrilStep(raw * ui.timeScale); }
   draw();
   if (((now / 100) | 0) !== frame.h) { frame.h = (now / 100) | 0; updateHUD(); }
   requestAnimationFrame(frame);
