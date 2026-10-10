@@ -20,8 +20,8 @@
     "forearmToUpperArmRatio": 0.63
   },
   "torso": {
-    "neckToChest": 67.0,
-    "chestToPelvis": 75.0,
+    "neckToChest": 70.0,
+    "chestToPelvis": 77.0,
     "pelvisToHip": 32.9,
     "shoulderToNeck": 51.7,
     "hipWidth": 47,
