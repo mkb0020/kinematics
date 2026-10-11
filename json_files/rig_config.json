@@ -2,7 +2,7 @@
   "meta": {
     "name": "mannequin",
     "description": "Rig Lab slider defaults for one character.",
-    "exported": "2026-10-10T08:35:30.625Z"
+    "exported": "2026-10-10T09:38:51.441Z"
   },
   "shared": {
     "body": {
@@ -35,6 +35,23 @@
       "zoom": 0.85,
       "lineW": 6,
       "tint": true
+    },
+    "bag": {
+      "bag": true,
+      "bagOverArm": false,
+      "bagScale": 0.34,
+      "bagSwing": 0.55,
+      "bagSurge": 0.09,
+      "bagLean": 0.85,
+      "bagHold": 3.1,
+      "bagLen": 1.9,
+      "bagZ": 0.71,
+      "charmZ": 0.43,
+      "strap": true,
+      "strapW": 8.5,
+      "strapSlack": 0.35,
+      "strapColor": "#37025a",
+      "strapEdge": "#170032"
     }
   },
   "cycles": {
@@ -43,7 +60,7 @@
         "spineAngle": 58,
         "chestAngle": 47,
         "neckAngle": 43,
-        "cycleSec": 2,
+        "cycleSec": 0.89,
         "airtime": 14,
         "twist": 21,
         "hipTwist": 13,
@@ -136,6 +153,8 @@
     "neckFrom": [376.5, 204.5],
     "neckTo": [393, 153],
     "stomachFrom": [398.5, 350],
-    "stomachTo": [402, 239]
+    "stomachTo": [402, 239],
+    "bagHip": [381, 343],
+    "strapTop": [428.5, 224]
   }
 }

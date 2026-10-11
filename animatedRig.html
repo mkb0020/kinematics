@@ -51,7 +51,9 @@ const ART_PIV={
   rib:[388.15,287.0],                                               // waist joint: on the hip->shoulder line, chest/pelvis gap
   neck:[382.2,199.5], headPivot:[382.2,143.5],
   neckFrom:[392,204], neckTo:[394,140],                      // chest top / base-back of the skull (56px apart, like the rig's neck)
-  stomachFrom:[409,322], stomachTo:[396,268]                 // stomach fill: just inside the pelvis top / just inside the chest bottom
+  stomachFrom:[409,322], stomachTo:[396,268],                // stomach fill: just inside the pelvis top / just inside the chest bottom
+  bagHip:[392,332],                                          // crossbody bag: where its two strap loops hang on the near hip (pelvis art)
+  strapTop:[379,203]                                         // crossbody strap: the apex over the far shoulder (chest art)
 };
 /* Pivot edits made in the Pivots menu are remembered in this browser (localStorage). They are discarded automatically if the
    defaults change. The defaults come from json_files/rig_config.json ("pivots"); the block above holds the built-in defaults. */
@@ -90,7 +92,9 @@ async function loadData(){
 const BASE = { chestDepth:40, neckLen:26, headR:30, bgLight:true, bgGrid:true, gridSize:50, gridAlpha:.5, bootOn:true, art:true, skel:false, farTint:.22, neckTrim:12, waistTrim:24, nearLegOver:true, pelvisTilt:.85, headFollow:.4, neckW:26, soleOff:96.2, footLen:95, heelFrac:.259, footLag:0, lag:1.5, range:.5,
   spPassing:1, spTakeoff:.7, spUp:.1, spContact:.35, spDown:.4,
   guides:false, joints:true, floor:true, scroll:1, zoom:1, lineW:6, tint:true,
-  stomach:true, stomachWChest:44, stomachWPelvis:50, stomachColor:'#210250' };
+  stomach:true, stomachWChest:44, stomachWPelvis:50, stomachColor:'#210250',
+  bag:true, bagOverArm:false, bagScale:.5, bagSwing:1, bagSurge:.1, bagLean:.6, bagHold:1.2, bagLen:1, bagZ:.25, charmZ:.12,
+  strap:true, strapW:10, strapSlack:.08, strapColor:'#37025a', strapEdge:'#170032' };
 /* Measured from the shoe frame of mannequin_side.png: sole 96.2px below the ankle pivot, heel back corner 24.6px behind it,
    toe-platform front corner 70.4px ahead (contact length 95, heel fraction .259). Bare mannequin foot: sole 39px below, 90px long, heel .22. */
 const FOOT_PRESET={ boot:{soleOff:96.2,footLen:95,heelFrac:.259}, bare:{soleOff:39,footLen:90,heelFrac:.22} };
@@ -103,6 +107,8 @@ const CYC = { run:{stride:1183,strideBoot:1628,twistPh:0,liftPh:0}, walk:{stride
 const strideNow=()=>CYC[S.cycle][P.bootOn?'strideBoot':'stride'];
 const P = {};
 const S = { cycle:'run', speed:1, playing:true, T:0, edit:false };
+const BAG = { rev:0, baked:-1, tab:null, N:0 };   // rev bumps whenever anything the swing depends on changes; the table is re-baked lazily when rev != baked
+let ACC_IMG=null;
 
 /* ---------- key-pose tables ---------- */
 let order=[], keys={}, speeds=[], stKeys={}, ftKeys={};
@@ -154,7 +160,8 @@ const CFG_GROUPS={
   poseSpeed:['spPassing','spTakeoff','spUp','spContact','spDown'],
   feet:['bootOn','soleOff','footLen','heelFrac'],
   art:['art','skel','farTint','nearLegOver'],
-  view:['bgLight','bgGrid','gridSize','gridAlpha','guides','joints','floor','scroll','zoom','lineW','tint']
+  view:['bgLight','bgGrid','gridSize','gridAlpha','guides','joints','floor','scroll','zoom','lineW','tint'],
+  bag:['bag','bagOverArm','bagScale','bagSwing','bagSurge','bagLean','bagHold','bagLen','bagZ','charmZ','strap','strapW','strapSlack','strapColor','strapEdge']
 };
 const CFG_CYCLE_KEYS=['spineAngle','chestAngle','neckAngle','cycleSec','airtime','twist','hipTwist','headBob','headJut','ssAmt'];
 let CFG_META={name:'mannequin',description:'Rig Lab slider defaults for one character.'};
@@ -240,6 +247,7 @@ function stretchFor(nm){
   return z;
 }
 function rebuild(){
+  BAG.rev++;
   const c=gait.cycles[S.cycle]; order=c.poseOrder;
   const pick=r=>r[0]+(r[1]-r[0])*P.range;
   keys={lT:[],lS:[],rT:[],rS:[],lU:[],lF:[],rU:[],rF:[]};
@@ -376,6 +384,71 @@ function solve(u){
   return {pelvis,legs,rib,shTop,rect,shNear,shFar,arms,head,neckEnd,guides,oy,lc,ss:sc};
 }
 
+/* ---------- crossbody bag + charms ---------- */
+/* assets/images/accessories.png = four 350x350 frames in ONE shared layout (stacked, they are bag.png): 0 bag, 1 crystal, 2 rune tag, 3 O-ring.
+   Points are pixels inside a frame. pv = where a piece hangs (it rotates about it), com = its centre of mass, box = [x,y,w,h] crop.
+   The bag hangs from its strap tabs at the near hip (ART_PIV.bagHip); the O-ring hangs on the bag's big ring, the crystal on the O-ring,
+   the tag on the bag's side ring. Each piece is a damped rigid pendulum driven by how its pivot accelerates (hip bounce + a footfall surge).
+   The swing is baked over a few warm-up cycles into a table per run phase, so it loops seamlessly, scrubs backwards and follows speed changes. */
+const ACC_URL='assets/images/accessories.png', ACC_FR=350, GRAV=4400;   // GRAV px/s^2: about 9.8 m/s^2 for a character ~780 px tall
+const ACC={
+  bag:    {f:0,box:[88,13,196,191], pv:[185,62], com:[186,115]},
+  ring:   {f:3,box:[144,153,38,46], pv:[163,162],com:[164,176]},
+  crystal:{f:1,box:[135,180,56,162],pv:[164,189],com:[163,262]},
+  tag:    {f:2,box:[245,118,40,172],pv:[272,126],com:[265,204]}
+};
+const ACC_HOOK={ring:[163,162], crystal:[164,189], tag:[272,126], tabF:[270,57], tabB:[101,66]};   // where each child hangs on its parent (= the child's pv at rest); the two strap tabs on the bag
+const ACC_PARENT={ring:'bag', crystal:'ring', tag:'bag'}, ACC_DRAW=['bag','tag','ring','crystal'], ACC_DAMP={bag:1,ring:1.5,crystal:1,tag:1.3};
+for(const k in ACC){const a=ACC[k]; a.d=Math.hypot(a.com[0]-a.pv[0],a.com[1]-a.pv[1]); a.k2=(a.box[2]*a.box[2]+a.box[3]*a.box[3])/12;
+  a.leff=(a.k2+a.d*a.d)/a.d; a.u=[(a.com[0]-a.pv[0])/a.d,(a.com[1]-a.pv[1])/a.d];}   // equivalent pendulum length of a rigid plate hung off-centre
+const rotv=(v,th)=>{const c=Math.cos(th),n=Math.sin(th);return [v[0]*c-v[1]*n,v[0]*n+v[1]*c];};
+function loadAcc(){
+  return new Promise(res=>{const im=new Image();
+    im.onload=()=>{if(im.naturalWidth===ACC_FR*4&&im.naturalHeight===ACC_FR) ACC_IMG=im; else console.warn(ACC_URL+' must be 1400x350 (four 350x350 frames), got '+im.naturalWidth+'x'+im.naturalHeight); res();};
+    im.onerror=()=>{console.warn('could not load '+ACC_URL);res();}; im.src=ACC_URL;});
+}
+function bagBake(){
+  BAG.baked=BAG.rev; BAG.tab=null;
+  if(!partsReady||!bones||!order.length) return;
+  const V=ART_PIV, cy=S.cycle, fc=S.speed/P.cycleSec, Tc=1/fc, s=P.bagScale, M=240, h=Tc/M, pr=P.pelvisTilt*(90-P.spineAngle)*R2D, pos=[];
+  for(let i=0;i<M;i++){const r=solve(i/M), a=mapPt(V.hip,r.pelvis,pr,V.bagHip); pos.push([a[0],a[1]+r.oy]);}   // world path of the hang point over one cycle
+  let acc=pos.map((p,i)=>{const a=pos[(i+1)%M],b=pos[(i+M-1)%M];return [(a[0]-2*p[0]+b[0])/(h*h),(a[1]-2*p[1]+b[1])/(h*h)];});
+  for(let k=0;k<3;k++) acc=acc.map((p,i)=>{const a=acc[(i+1)%M],b=acc[(i+M-1)%M];return [(a[0]+2*p[0]+b[0])/4,(a[1]+2*p[1]+b[1])/4];});   // the pose splines have kinks; smooth the accelerations
+  /* the rig runs at constant speed, so a real body's braking and push-off is added as a forward/back surge twice per cycle, lowest at the pelvis' lowest point */
+  const sg=P.bagSurge*(cy==='run'?1:.35)*strideNow()*4*Math.PI*fc*fc, lp=CYC[cy].liftPh;
+  const N=Math.max(96,Math.min(1024,Math.ceil(Tc*240))), dt=Tc/N, ws=Math.max(4,Math.ceil(6/Tc))*N, names=['bag','ring','crystal','tag'], st={}, tab={};
+  const restB=P.bagLean*pr;   // the bag leans along with the pelvis by this fraction, held there by the strap against the hip
+  names.forEach(n=>{st[n]={th:n==='bag'?restB:0,w:0,al:0,Lw:ACC[n].leff*s*P.bagLen}; tab[n]=new Float32Array(N);});
+  for(let step=0;step<ws+N;step++){
+    const k=step%N, u=k/N, ai=u*M, i0=Math.floor(ai), f=ai-i0, A=acc[i0%M], B=acc[(i0+1)%M], ap={};
+    ap.bag=[(A[0]*(1-f)+B[0]*f+sg*Math.sin(4*Math.PI*(u-lp)))*P.bagSwing,(A[1]*(1-f)+B[1]*f)*P.bagSwing];
+    for(const n of names){
+      const o=st[n], a=ACC[n], par=ACC_PARENT[n];
+      if(par){   // acceleration of this pivot = parent's pivot acceleration + the parent swinging about its own pivot
+        const p=st[par], w=[(ACC_HOOK[n][0]-ACC[par].pv[0])*s,(ACC_HOOK[n][1]-ACC[par].pv[1])*s], Rw=rotv(w,p.th), Rj=rotv([-w[1],w[0]],p.th), q=ap[par];
+        ap[n]=[q[0]+p.al*Rj[0]-p.w*p.w*Rw[0], q[1]+p.al*Rj[1]-p.w*p.w*Rw[1]];
+      }
+      const d=rotv(a.u,o.th), q=ap[n], ks=n==='bag'?P.bagHold*GRAV/o.Lw:0, om=Math.sqrt(GRAV/o.Lw+ks), z=n==='bag'?P.bagZ:P.charmZ*ACC_DAMP[n];
+      o.al=((GRAV-q[1])*d[0]+q[0]*d[1])/o.Lw-ks*(o.th-restB)-2*z*om*o.w;   // gravity + pivot acceleration (about the pivot), hold spring (bag only), damping
+    }
+    for(const n of names){const o=st[n]; o.w+=o.al*dt; o.th+=o.w*dt; if(Math.abs(o.th)>2.4){o.th=Math.sign(o.th)*2.4;o.w=0;} if(step>=ws) tab[n][k]=o.th;}
+  }
+  BAG.N=N; BAG.tab=tab;
+}
+function bagLayout(r){   // world placement of every piece for this frame: T = where its pv sits, th = rotation (rad, clockwise)
+  const V=ART_PIV, s=P.bagScale, T=BAG.tab, N=BAG.N, pr=P.pelvisTilt*(90-P.spineAngle)*R2D, p=(((r.u%1)+1)%1)*N, i=Math.floor(p), f=p-i;
+  const ang=n=>T[n][i%N]*(1-f)+T[n][(i+1)%N]*f, L={bag:{T:mapPt(V.hip,r.pelvis,pr,V.bagHip),th:ang('bag')},ring:{th:ang('ring')},crystal:{th:ang('crystal')},tag:{th:ang('tag')}};
+  const pt=(n,q)=>{const a=ACC[n],o=L[n],v=rotv([(q[0]-a.pv[0])*s,(q[1]-a.pv[1])*s],o.th);return [o.T[0]+v[0],o.T[1]+v[1]];};
+  L.ring.T=pt('bag',ACC_HOOK.ring); L.tag.T=pt('bag',ACC_HOOK.tag); L.crystal.T=pt('ring',ACC_HOOK.crystal);
+  L.tabF=pt('bag',ACC_HOOK.tabF); L.tabB=pt('bag',ACC_HOOK.tabB); L.apex=chestPt(r,V.strapTop);
+  return L;
+}
+function bagEnsure(r){   // null = nothing to draw (off, art missing, or the bake failed; a failed bake must never stop the render loop)
+  if(!(P.bag&&ACC_IMG&&partsReady&&r.u!==undefined)) return null;
+  try{ if(BAG.baked!==BAG.rev||!BAG.tab) bagBake(); return BAG.tab?bagLayout(r):null; }
+  catch(e){ if(!BAG.err){BAG.err=1;console.error('bag:',e);} return null; }
+}
+
 /* ---------- drawing ---------- */
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 let W=0,H=0,DPR=1;
@@ -452,8 +525,9 @@ const PIV_INFO=[
  ['shoulder','Shoulder','upper arm top · chest top'],['elbow','Elbow','upper arm bottom · forearm top'],['wrist','Wrist','forearm bottom · both hands'],
  ['rib','Waist','chest bottom / stomach joint'],['neck','Neck base','chest top, where the head attaches'],['headPivot','Head pivot','head rotates here; neck length = neck base to here'],
  ['neckFrom','Neck line start','black neck line, on the chest'],['neckTo','Neck line end','black neck line, on the head'],
- ['stomachFrom','Stomach start','stomach fill: on the pelvis, just inside its top edge'],['stomachTo','Stomach end','stomach fill: on the chest, just inside its bottom edge']];
-const PIV_COL={hip:'#cc0000',knee:'#cc0000',ankle:'#cc0000',shoulder:'#c71585',elbow:'#c71585',wrist:'#c71585',rib:'#830cde',neck:'#ff6200',headPivot:'#ff6200',neckFrom:'#2f9e2a',neckTo:'#2f9e2a',stomachFrom:'#fecd39',stomachTo:'#fecd39'};
+ ['stomachFrom','Stomach start','stomach fill: on the pelvis, just inside its top edge'],['stomachTo','Stomach end','stomach fill: on the chest, just inside its bottom edge'],
+ ['bagHip','Bag hang point','where the bag\'s strap loops hang on the near hip (the bag rotates about here; it stays on the pelvis art)'],['strapTop','Strap over shoulder','crossbody strap apex, on the chest art, over the far shoulder']];
+const PIV_COL={hip:'#cc0000',knee:'#cc0000',ankle:'#cc0000',shoulder:'#c71585',elbow:'#c71585',wrist:'#c71585',rib:'#830cde',neck:'#ff6200',headPivot:'#ff6200',neckFrom:'#2f9e2a',neckTo:'#2f9e2a',stomachFrom:'#fecd39',stomachTo:'#fecd39',bagHip:'#0092b3',strapTop:'#764ba2'};
 const PIV_LINES=[['hip','knee'],['knee','ankle'],['shoulder','elbow'],['elbow','wrist'],['hip','rib'],['rib','shoulder'],['neck','headPivot'],['neckFrom','neckTo'],['stomachFrom','stomachTo']];
 const E={z:1,cx:400,cy:420,sel:null,hover:null,drag:null,pan:null,ghost:true,grid:true,ghostImg:null,map:{s:1,tx:0,ty:0},inputs:{},rows:{},txt:null,editBtn:null};
 function pivSave(){try{localStorage.setItem(PIV_KEY,JSON.stringify({base:PIV_DEFAULT,cur:ART_PIV}));}catch(e){}}
@@ -603,8 +677,29 @@ function drawStomach(r){
   ctx.beginPath();ctx.moveTo(a[0]+nx*wp,a[1]+ny*wp);ctx.lineTo(b[0]+nx*wc,b[1]+ny*wc);ctx.lineTo(b[0]-nx*wc,b[1]-ny*wc);ctx.lineTo(a[0]-nx*wp,a[1]-ny*wp);ctx.closePath();ctx.fill();ctx.stroke();
   ctx.restore();
 }
+function chestPt(r,p){   // a chest-art point carried through the same transform the chest art gets (rotate + stretch along the bone), like stomachEnds
+  const V=ART_PIV, shC=add(r.shTop,[Math.cos(P.chestAngle*R2D),-Math.sin(P.chestAngle*R2D)],-12);
+  const vx=V.shoulder[0]-V.rib[0],vy=V.shoulder[1]-V.rib[1],L=Math.hypot(vx,vy),ax=[vx/L,vy/L],RL=Math.hypot(shC[0]-r.rib[0],shC[1]-r.rib[1]);
+  let q=[p[0]-V.rib[0],p[1]-V.rib[1]]; const d=(RL/L-1)*(q[0]*ax[0]+q[1]*ax[1]); q=[q[0]+d*ax[0],q[1]+d*ax[1]];
+  const rot=limbRot(V.rib,V.shoulder,r.rib,shC), c=Math.cos(rot), n=Math.sin(rot);
+  return [r.rib[0]+q[0]*c-q[1]*n, r.rib[1]+q[0]*n+q[1]*c];
+}
+function drawBagArt(L){
+  const s=P.bagScale; ctx.imageSmoothingEnabled=true;
+  for(const n of ACC_DRAW){const a=ACC[n],o=L[n],[x,y,w,h]=a.box;
+    ctx.save();ctx.translate(o.T[0],o.T[1]);ctx.rotate(o.th);ctx.scale(s,s);ctx.translate(-a.pv[0],-a.pv[1]);
+    ctx.drawImage(ACC_IMG,a.f*ACC_FR+x,y,w,h,x,y,w,h);ctx.restore();}
+}
+function strapSeg(a,b){   // one strap run: a sagging curve, dark edge, flat colour, dashed stitching
+  const len=Math.hypot(b[0]-a[0],b[1]-a[1]), c=[(a[0]+b[0])/2,(a[1]+b[1])/2+len*P.strapSlack], w=P.strapW;
+  ctx.save();ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.quadraticCurveTo(c[0],c[1],b[0],b[1]);
+  ctx.strokeStyle=P.strapEdge;ctx.lineWidth=w+4;ctx.stroke();
+  ctx.strokeStyle=P.strapColor;ctx.lineWidth=w;ctx.stroke();
+  ctx.strokeStyle='rgba(118,75,162,.7)';ctx.lineWidth=Math.max(1,w*.1);ctx.lineCap='butt';ctx.setLineDash([w*.7,w*.5]);ctx.stroke();
+  ctx.restore();
+}
 function drawCharacter(r){
-  const V=ART_PIV, A=r.arms, G=r.legs;
+  const V=ART_PIV, A=r.arms, G=r.legs, BL=bagEnsure(r), bagOut=()=>{if(!BL)return;drawBagArt(BL);if(P.strap)strapSeg(BL.apex,BL.tabF);};   // bag + charms, then the front strap over them into the bag's front tab
   const drawLegArt=(l,far)=>{
     if(P.bootOn) placePart('shoe',V.ankle,l.ankle,(90-l.fa)*R2D,1,null,far);
     else{ctx.beginPath();ctx.moveTo(l.ankle[0],l.ankle[1]);ctx.lineTo(l.heel[0],l.heel[1]);ctx.lineTo(l.toe[0],l.toe[1]);ctx.closePath();
@@ -617,7 +712,9 @@ function drawCharacter(r){
    placePart('handL',V.wrist,a.wrist,fr,1,null,false);
    limbPart('forearm',V.elbow,V.wrist,a.elbow,a.wrist,true);
    limbPart('upperArm',V.shoulder,V.elbow,a.root,a.elbow,true);}
-  drawLegArt(G.L,true); if(!P.nearLegOver) drawLegArt(G.R,false);
+  drawLegArt(G.L,true);
+  if(BL&&P.strap) strapSeg(BL.apex,BL.tabB);   // back strap: behind the body, into the bag's back tab (the bag is drawn over its end)
+  if(!P.nearLegOver) drawLegArt(G.R,false);
   /* waist: flat-colour fill between the pelvis top and the chest bottom (the pelvis and chest are drawn over its ends) */
   if(P.stomach) drawStomach(r); else seg(r.pelvis,r.rib,COL.torso,P.lineW);
   /* pelvis tilts a fraction of the spine lean so the hips do not fold with the torso */
@@ -629,11 +726,13 @@ function drawCharacter(r){
   const n0=mapPt(V.rib,r.rib,chRot,V.neckFrom), n1=mapPt(V.headPivot,hp,hdRot,V.neckTo);
   ctx.save();ctx.lineCap='round';ctx.strokeStyle='#000';ctx.lineWidth=P.neckW;ctx.beginPath();ctx.moveTo(n0[0],n0[1]);ctx.lineTo(n1[0],n1[1]);ctx.stroke();ctx.restore();
   limbPart('chest',V.rib,V.shoulder,r.rib,shC,false);
+  if(!P.bagOverArm) bagOut();   // the bag is on the near hip: over the pelvis, near thigh and chest, under the near arm
   /* near arm in front of the chest */
   {const a=A.R; const fr=Math.atan2(V.wrist[0]-V.elbow[0],V.wrist[1]-V.elbow[1])-Math.atan2(a.wrist[0]-a.elbow[0],a.wrist[1]-a.elbow[1]);
    placePart('handR',V.wrist,a.wrist,fr,1,null,false);
    limbPart('forearm',V.elbow,V.wrist,a.elbow,a.wrist,false);
    limbPart('upperArm',V.shoulder,V.elbow,a.root,a.elbow,false);}
+  if(P.bagOverArm) bagOut();
   /* hooded head last: the cowl drapes over the chest and the near shoulder (the hands never reach the hood in the run or walk) */
   placePart('head',V.headPivot,hp,hdRot,1,null,false);
 }
@@ -668,7 +767,7 @@ function drawFloor(off){
 
 let lastHud='', lastType='', lastLight=null;
 function render(){
-  const u=((S.T%1)+1)%1, r=solve(u);
+  const u=((S.T%1)+1)%1, r=solve(u); r.u=u;
   Object.assign(COL,P.bgLight?COL_LIGHT:COL_DARK);
   if(lastLight!==!!P.bgLight){lastLight=!!P.bgLight;document.body.classList.toggle('light',lastLight);}
   const bg=ctx.createLinearGradient(0,0,0,H);
@@ -727,7 +826,7 @@ function render(){
   if(txt!==lastHud){hud.firstChild.nodeValue=txt;lastHud=txt;}
   const tp=ptype(order[k]);
   if(tp!==lastType){for(const n in gridUI)for(const t in gridUI[n].rows)gridUI[n].rows[t].classList.toggle('now',t===tp);lastType=tp;}
-  hud.lastChild.textContent=`phase ${u.toFixed(3)}  •  ${(P.cycleSec/S.speed).toFixed(2)}s cycle  •  data: ${dataSrc}  •  art: ${artLabel}`;
+  hud.lastChild.textContent=`phase ${u.toFixed(3)}  •  ${(P.cycleSec/S.speed).toFixed(2)}s cycle  •  data: ${dataSrc}  •  art: ${artLabel}  •  bag: ${ACC_IMG?(P.bag?'on':'off'):'accessories.png missing'}`;
   if(!scrubbing) scrub.value=Math.round(u*1000);
 }
 
@@ -750,7 +849,7 @@ scrub.addEventListener('pointerdown',()=>{scrubbing=true;});
 addEventListener('pointerup',()=>{scrubbing=false;});
 scrub.addEventListener('input',()=>{S.T=Math.floor(S.T)+scrub.value/1000;S.playing=false;updatePlay();});
 $('pose').onchange=e=>{const n=order.length;S.T=Math.floor(S.T)+(+e.target.value)/n;S.playing=false;updatePlay();e.target.blur();};
-$('speed').onchange=e=>{S.speed=+e.target.value;e.target.blur();};
+$('speed').onchange=e=>{S.speed=+e.target.value;BAG.rev++;e.target.blur();};
 $('cycle').onchange=e=>{setCycle(e.target.value);e.target.blur();};
 $('reset').onclick=e=>{for(const k in CYC_LIVE)delete CYC_LIVE[k];Object.assign(P,BASE,CYCLE_DEFAULTS[S.cycle]);rebuildTints();resetGrids();resetFootGrids();rebuild();renderGrids();syncAll();e.target.blur();};
 $('cfgExport').onclick=e=>{cfgDownload(e.target);e.target.blur();};
@@ -831,6 +930,25 @@ const MENUS={
   {k:'neckTrim',l:'Neck shortening',min:0,max:40,step:1},
   {k:'waistTrim',l:'Waist shortening',min:0,max:60,step:1},
   {k:'nearLegOver',l:'Near leg over pelvis',check:1}],
+ 'Bag':[
+  {k:'bag',l:'Crossbody bag',check:1},
+  {k:'bagOverArm',l:'Bag over near arm',check:1},
+  {k:'bagScale',l:'Bag scale',min:.2,max:1.2,step:.01},
+  {head:'SWING'},
+  {k:'bagSwing',l:'Swing amount',min:0,max:3,step:.05},
+  {k:'bagSurge',l:'Footfall surge',min:0,max:.4,step:.01},
+  {k:'bagLean',l:'Lean with torso',min:0,max:1,step:.05},
+  {k:'bagHold',l:'Hold to hip',min:0,max:4,step:.05},
+  {k:'bagLen',l:'Looseness (slower)',min:.5,max:2.5,step:.05},
+  {k:'bagZ',l:'Bag damping',min:.03,max:1,step:.01},
+  {k:'charmZ',l:'Charm damping',min:.02,max:1,step:.01},
+  {head:'STRAP'},
+  {k:'strap',l:'Strap',check:1},
+  {k:'strapW',l:'Strap width',min:3,max:30,step:.5},
+  {k:'strapSlack',l:'Strap slack',min:0,max:.5,step:.01},
+  {k:'strapColor',l:'Strap colour',color:1},
+  {k:'strapEdge',l:'Strap edge',color:1},
+  {note:'The bag hangs from its two strap tabs on the near hip; the O-ring and crystal hang from the big ring, the rune tag from the side ring. Each piece swings as its own pendulum, baked per phase so it loops and scrubs. Footfall surge = how hard each step jerks the body forward and back (walk uses 35% of it). Move where the bag hangs and where the strap crosses the shoulder in Pivots → Edit pivots (Bag hang point, Strap over shoulder).'}],
  'Pivots':[{pivots:1}]
 };
 const syncers=[];
@@ -940,6 +1058,7 @@ function setCycle(c){
   applyArtBones();
   Object.assign(P,BASE);
   await loadArt();
+  await loadAcc();
   loadGhost();
   resetGrids();resetFootGrids();
   buildDock('left',MENUS);
