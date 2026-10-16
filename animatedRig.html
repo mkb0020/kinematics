@@ -44,16 +44,16 @@ const R2D = Math.PI / 180, FPS = 24;
    part's own pivot-to-pivot axis onto the matching skeleton bone (rotating and stretching it along the bone). */
 const SHEET_URL='assets/images/body_parts.png';   // the head frame is the hooded head; every other frame matches mannequin_side.png
 const ART_NAMES=["head", "chest", "pelvis", "upperArm", "forearm", "handR", "handL", "thigh", "calf", "shoe"];
-const ART_BOX={"head": [298, 22, 179, 203], "chest": [332, 162, 141, 146], "pelvis": [317, 281, 144, 164], "upperArm": [340, 163, 87, 169], "forearm": [345, 259, 97, 157], "handR": [364, 354, 91, 94], "handL": [365, 353, 90, 93], "thigh": [325, 328, 132, 242], "calf": [331, 502, 100, 220], "shoe": [327, 640, 154, 160]};   // [x,y,w,h] crop of each frame (bbox + margin)
+const ART_BOX={"head": [320, 120, 155, 182], "chest": [355, 251, 102, 104], "pelvis": [346, 367, 98, 119], "upperArm": [358, 262, 51, 109], "forearm": [359, 330, 66, 100], "handR": [374, 384, 59, 71], "handL": [373, 395, 59, 62], "thigh": [344, 409, 95, 197], "calf": [335, 551, 86, 198], "shoe": [338, 681, 114, 119]};   // [x,y,w,h] crop of each frame (bbox + margin)
 const ART_PIV={
-  hip:[393.5,365.5], knee:[384.5,533.6], ankle:[383.1,685.3],        // gray knee ball / ankle circle; hip = 320.2px above ankle
-  shoulder:[383.0,211.5], elbow:[383.7,296.7], wrist:[401.9,386.3],  // elbow / wrist gray circles; shoulder = centre of the arm cap
-  rib:[388.15,287.0],                                               // waist joint: on the hip->shoulder line, chest/pelvis gap
-  neck:[382.2,199.5], headPivot:[382.2,143.5],
-  neckFrom:[392,204], neckTo:[394,140],                      // chest top / base-back of the skull (56px apart, like the rig's neck)
-  stomachFrom:[409,322], stomachTo:[396,268],                // stomach fill: just inside the pelvis top / just inside the chest bottom
-  bagHip:[392,332],                                          // crossbody bag: where its two strap loops hang on the near hip (pelvis art)
-  strapTop:[379,203]                                         // crossbody strap: the apex over the far shoulder (chest art)
+  hip:[392.5,448], knee:[391,580], ankle:[372.6,702.8],            // hip = centre of the thigh's top cap / pelvis round; knee = where thigh bottom meets calf top; ankle = boot pivot (sole 96px below, heel 25px behind)
+  shoulder:[383,288], elbow:[382.5,349], wrist:[395,404],          // shoulder = centre of the arm cap; elbow / wrist = joint ends of the arm parts
+  rib:[386,340],                                                   // waist joint: on the hip->shoulder line, at the chest bottom
+  neck:[382.3,276], headPivot:[393,240],                           // neck = 12px above the shoulder along the chest; head turns about the skull base
+  neckFrom:[385,268], neckTo:[393,236],                            // neck line: inside the chest top / inside the hood
+  stomachFrom:[397,390], stomachTo:[398,336],                      // stomach fill: just inside the pelvis top / just inside the chest bottom
+  bagHip:[391,418],                                                // crossbody bag: where its two strap loops hang on the near hip (pelvis art)
+  strapTop:[381,278]                                               // crossbody strap: the apex over the far shoulder (chest art)
 };
 /* Pivot edits made in the Pivots menu are remembered in this browser (localStorage). They are discarded automatically if the
    defaults change. The defaults come from json_files/rig_config.json ("pivots"); the block above holds the built-in defaults. */
