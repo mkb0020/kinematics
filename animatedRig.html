@@ -37,12 +37,12 @@
    ====================================================================== */
 const R2D = Math.PI / 180, FPS = 24;
 /* ======================= CHARACTER ART =======================
-   SHEET_URL (assets/images/mannequin_side_with_hood.png) is a sheet of ten 800x800 frames, each part drawn IN PLACE on the mannequin:
+   SHEET_URL (assets/images/body_parts.png) is a sheet of ten 800x800 frames, each part drawn IN PLACE on the mannequin:
    head, chest, pelvis, upperArm, forearm, handR, handL, thigh, calf, shoe.
    The page loads that file on start (so redrawing the sheet updates the rig); it must be served over http.
    Pivots are positions inside the 800x800 frame, measured from the mannequin's gray joint circles; the rig maps each
    part's own pivot-to-pivot axis onto the matching skeleton bone (rotating and stretching it along the bone). */
-const SHEET_URL='assets/images/mannequin_side_with_hood.png';   // the head frame is the hooded head; every other frame matches mannequin_side.png
+const SHEET_URL='assets/images/body_parts.png';   // the head frame is the hooded head; every other frame matches mannequin_side.png
 const ART_NAMES=["head", "chest", "pelvis", "upperArm", "forearm", "handR", "handL", "thigh", "calf", "shoe"];
 const ART_BOX={"head": [298, 22, 179, 203], "chest": [332, 162, 141, 146], "pelvis": [317, 281, 144, 164], "upperArm": [340, 163, 87, 169], "forearm": [345, 259, 97, 157], "handR": [364, 354, 91, 94], "handL": [365, 353, 90, 93], "thigh": [325, 328, 132, 242], "calf": [331, 502, 100, 220], "shoe": [327, 640, 154, 160]};   // [x,y,w,h] crop of each frame (bbox + margin)
 const ART_PIV={
@@ -450,7 +450,7 @@ function bagEnsure(r){   // null = nothing to draw (off, art missing, or the bak
 }
 
 /* ---------- drawing ---------- */
-const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const cv=document.getElementById('cv'); let ctx=cv.getContext('2d');   // let: swapped for an offscreen canvas while frames are exported
 let W=0,H=0,DPR=1;
 function resize(){DPR=window.devicePixelRatio||1;const L=dockW('left'),R=dockW('right');W=innerWidth-L-R;H=innerHeight;   // canvas sits between the docks, so everything re-centres on its own
   const rs=document.documentElement.style;rs.setProperty('--dockL',L+'px');rs.setProperty('--dockR',R+'px');
@@ -949,6 +949,7 @@ const MENUS={
   {k:'strapColor',l:'Strap colour',color:1},
   {k:'strapEdge',l:'Strap edge',color:1},
   {note:'The bag hangs from its two strap tabs on the near hip; the O-ring and crystal hang from the big ring, the rune tag from the side ring. Each piece swings as its own pendulum, baked per phase so it loops and scrubs. Footfall surge = how hard each step jerks the body forward and back (walk uses 35% of it). Move where the bag hangs and where the strap crosses the shoulder in Pivots → Edit pivots (Bag hang point, Strap over shoulder).'}],
+ 'Export':[{frames:1}],
  'Pivots':[{pivots:1}]
 };
 const syncers=[];
@@ -974,6 +975,7 @@ function buildDock(side,menus){
 }
 function addRow(pn,it){
   if(it.pivots){buildPivotPanel(pn);return;}
+  if(it.frames){buildFramesPanel(pn);return;}
   if(it.head){const h=document.createElement('div');h.className='head';h.textContent=it.head;pn.appendChild(h);return;}
   if(it.grid){const h=document.createElement('div');pn.appendChild(h);gridUI[it.grid]={host:h,rows:{}};return;}
   if(it.note){const d=document.createElement('div');d.className='note';d.textContent=it.note;pn.appendChild(d);return;}
@@ -1050,6 +1052,100 @@ function setCycle(c){
   order.forEach((nm,i)=>{const o=document.createElement('option');o.value=i;o.textContent=nm;pj.appendChild(o);});
   renderGrids();
   syncAll();
+}
+
+/* ---------- frame export: transparent PNG sequence + anchors.json, bundled in one .zip, for painting over in Krita etc. ----------
+   Every frame is drawn by drawCharacter() exactly as on screen (bag, strap, boots, sliders), on ONE fixed canvas sized to fit the union of all frames.
+   The pelvis x and the floor line land on the same pixel in every frame (origin in anchors.json), so the frames stack cleanly as layers. */
+const EXP={scale:2,frames:0,pad:24,busy:false};   // frames 0 = auto: one per 1/24 s of the cycle at the current speed
+const PROBE={w:1800,h:1500,ox:900,gy:1200};   // scratch canvas at 1x (rig px) used to measure the union bounds of all frames
+const expAuto=()=>{const m=order.length||1;return Math.max(1,Math.round(P.cycleSec/S.speed*FPS/m))*m;};   // about 24 fps, rounded to a multiple of the key-pose count so every key pose lands exactly on a frame
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const solveAt=(i,n)=>{const u=i/n,r=solve(u);r.u=u;return r;};
+function expDraw(c2,r,sc,ox,gy){   // one solved frame onto c2: pelvis x -> ox, floor line -> gy. drawCharacter draws through the global ctx, so it is swapped for the call
+  const keep=ctx; ctx=c2;
+  try{c2.setTransform(1,0,0,1,0,0);c2.clearRect(0,0,c2.canvas.width,c2.canvas.height);c2.setTransform(sc,0,0,sc,ox,gy);c2.translate(0,r.oy);c2.imageSmoothingEnabled=true;c2.imageSmoothingQuality='high';drawCharacter(r);}
+  finally{ctx=keep;}
+}
+function expBounds(n){   // union of every frame's drawn pixels, in rig px relative to (pelvis x, floor y)
+  const c=document.createElement('canvas');c.width=PROBE.w;c.height=PROBE.h;const x=c.getContext('2d',{willReadFrequently:true});
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(let i=0;i<n;i++){
+    expDraw(x,solveAt(i,n),1,PROBE.ox,PROBE.gy);
+    const d=x.getImageData(0,0,PROBE.w,PROBE.h).data;
+    for(let y=0;y<PROBE.h;y++){const o=y*PROBE.w*4+3;for(let px=0;px<PROBE.w;px++)if(d[o+px*4]){if(px<x0)x0=px;if(px>x1)x1=px;if(y<y0)y0=y;if(y>y1)y1=y;}}
+  }
+  if(x1<0) throw new Error('nothing was drawn (is the art on?)');
+  if(x0<=0||y0<=0||x1>=PROBE.w-1||y1>=PROBE.h-1) throw new Error('the character is larger than the measuring canvas');
+  return {l:x0-PROBE.ox,t:y0-PROBE.gy,r:x1+1-PROBE.ox,b:y1+1-PROBE.gy};
+}
+function rigAnchors(r){   // key points of one solved frame in rig px (before the floor shift r.oy); mirrors the transforms drawCharacter uses for the neck and head
+  const V=ART_PIV, nd=[Math.sin(P.neckAngle*R2D),-Math.cos(P.neckAngle*R2D)], hp=add(add(r.shTop,nd,ART_NECK-P.neckTrim),[P.headJut*r.lc,-P.headBob*r.lc]);
+  const shC=add(r.shTop,[Math.cos(P.chestAngle*R2D),-Math.sin(P.chestAngle*R2D)],-12), neck=mapPt(V.rib,r.rib,limbRot(V.rib,V.shoulder,r.rib,shC),V.neckFrom);
+  const ft=l=>({ankle:l.ankle,heel:l.heel,toe:l.toe,lift:-(Math.max(l.heel[1],l.toe[1])+r.oy)});   // lift = lowest sole point above the floor
+  return {pelvis:r.pelvis,neck,head:hp,shoulderNear:r.shNear,shoulderFar:r.shFar,handNear:r.arms.R.wrist,handFar:r.arms.L.wrist,footNear:ft(r.legs.R),footFar:ft(r.legs.L)};
+}
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+const crc32=b=>{let c=-1;for(let i=0;i<b.length;i++)c=CRC_T[(c^b[i])&255]^(c>>>8);return (c^-1)>>>0;};
+function zipStore(files){   // [{name,data:Uint8Array}] -> Blob; stored, not deflated (PNGs are already compressed)
+  const enc=new TextEncoder(), parts=[], cen=[], now=new Date(); let off=0, cs=0;
+  const dt=((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate(), tm=(now.getHours()<<11)|(now.getMinutes()<<5)|(now.getSeconds()>>1);
+  for(const f of files){
+    const nm=enc.encode(f.name), crc=crc32(f.data), sz=f.data.length;
+    const lh=new DataView(new ArrayBuffer(30)); lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(10,tm,true);lh.setUint16(12,dt,true);lh.setUint32(14,crc,true);lh.setUint32(18,sz,true);lh.setUint32(22,sz,true);lh.setUint16(26,nm.length,true);
+    const ch=new DataView(new ArrayBuffer(46)); ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(12,tm,true);ch.setUint16(14,dt,true);ch.setUint32(16,crc,true);ch.setUint32(20,sz,true);ch.setUint32(24,sz,true);ch.setUint16(28,nm.length,true);ch.setUint32(42,off,true);
+    parts.push(lh.buffer,nm,f.data); cen.push(ch.buffer,nm); off+=30+nm.length+sz; cs+=46+nm.length;
+  }
+  const end=new DataView(new ArrayBuffer(22)); end.setUint32(0,0x06054b50,true);end.setUint16(8,files.length,true);end.setUint16(10,files.length,true);end.setUint32(12,cs,true);end.setUint32(16,off,true);
+  return new Blob([...parts,...cen,end.buffer],{type:'application/zip'});
+}
+async function exportFrames(){
+  if(EXP.busy) return;
+  const st=$('expStatus'), btn=$('expGo'), say=(t,bad)=>{st.textContent=t;st.classList.toggle('err',!!bad);};
+  if(!partsReady){say('The character art has not loaded yet.',1);return;}
+  EXP.busy=true;btn.disabled=true;document.body.classList.add('exporting');
+  try{
+    const cyc=S.cycle, n=EXP.frames||expAuto(), sc=EXP.scale, pad=EXP.pad, sec=P.cycleSec/S.speed, m=order.length;
+    say('Measuring all '+n+' frames…');await tick();
+    const b=expBounds(n), ox=Math.ceil((-b.l+pad)*sc), gy=Math.ceil((-b.t+pad)*sc), w0=Math.ceil(ox+(b.r+pad)*sc), h0=Math.ceil(gy+(b.b+pad)*sc), FW=w0+(w0&1), FH=h0+(h0&1);   // even sizes
+    if(FW>8192||FH>8192) throw new Error('each frame would be '+FW+'×'+FH+' px; lower the scale or padding');
+    const c=document.createElement('canvas');c.width=FW;c.height=FH;const x=c.getContext('2d'), tag=cyc+'_'+n+'f_'+sc+'x', files=[], frames=[];
+    const px=(p,r)=>[+(ox+p[0]*sc).toFixed(1),+(gy+(p[1]+r.oy)*sc).toFixed(1)];
+    for(let i=0;i<n;i++){
+      say('Rendering frame '+(i+1)+' / '+n+'  ('+FW+'×'+FH+' px)…');await tick();
+      const r=solveAt(i,n), a=rigAnchors(r), name=cyc+'_'+String(i).padStart(3,'0')+'.png';
+      expDraw(x,r,sc,ox,gy);
+      const blob=await new Promise(res=>c.toBlob(res,'image/png'));   // toBlob copies the bitmap at call time, so reusing the canvas for the next frame is safe
+      files.push({name:tag+'/'+name,data:new Uint8Array(await blob.arrayBuffer())});
+      const foot=l=>({ankle:px(l.ankle,r),heel:px(l.heel,r),toe:px(l.toe,r),lift:+(l.lift*sc).toFixed(1),contact:l.lift<3});
+      const k=Math.round(r.u*m)%m, onKey=Math.abs(r.u*m-Math.round(r.u*m))<.06;
+      frames.push({i,file:name,phase:+r.u.toFixed(4),keyPose:onKey?order[k]:null,pelvisHeight:+(-r.oy*sc).toFixed(1),
+        points:{pelvis:px(a.pelvis,r),neck:px(a.neck,r),head:px(a.head,r),shoulderNear:px(a.shoulderNear,r),shoulderFar:px(a.shoulderFar,r),handNear:px(a.handNear,r),handFar:px(a.handFar,r)},
+        footNear:foot(a.footNear),footFar:foot(a.footFar)});
+    }
+    const meta={tool:'Rig Lab',cycle:cyc,exported:new Date().toISOString(),frameCount:n,loop:true,cycleSeconds:+sec.toFixed(4),playbackFps:+(n/sec).toFixed(3),scale:sc,paddingRigPx:pad,frameSize:[FW,FH],
+      origin:{x:ox,y:gy,note:'the pixel in every frame that is the pelvis x and the floor line; put this point on the character position in the game'},
+      coordinates:'pixels in the exported frame: origin top-left, y down. Frame i is phase i/frameCount of the loop. neck = where a cape or hood attaches. lift = lowest sole point above the floor (px); contact = within 3 rig px of it.'};
+    files.push({name:tag+'/anchors.json',data:new TextEncoder().encode(cfgStringify({meta,frames})+'\n')});
+    const a=document.createElement('a');a.href=URL.createObjectURL(zipStore(files));a.download='rig_'+tag+'.zip';document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    say('Done: '+n+' frames, '+FW+'×'+FH+' px each → rig_'+tag+'.zip');
+  }catch(e){console.error(e);say('Export failed: '+(e&&e.message||e),1);}
+  finally{EXP.busy=false;btn.disabled=false;document.body.classList.remove('exporting');}
+}
+function buildFramesPanel(pn){
+  const row=(lab,el)=>{const r=document.createElement('div'),l=document.createElement('span');r.className='row';l.textContent=lab;r.append(l,el,document.createElement('span'));pn.appendChild(r);};
+  const sel=document.createElement('select');[1,2,3,4].forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v+'×';o.selected=v===EXP.scale;sel.appendChild(o);});
+  sel.onchange=()=>{EXP.scale=+sel.value;sel.blur();};
+  const num=(min,max,val,on)=>{const i=document.createElement('input');i.type='number';i.min=min;i.max=max;i.step=1;if(val)i.value=val;i.oninput=()=>on(Math.max(min,Math.min(max,Math.round(+i.value)||0)));i.addEventListener('change',()=>i.blur());return i;};
+  const fr=num(2,96,0,v=>{EXP.frames=v;}), pd=num(0,200,EXP.pad,v=>{EXP.pad=v;});
+  const auto=()=>{if(P.cycleSec>0)fr.placeholder='auto ('+expAuto()+')';};syncers.push(auto);fr.onfocus=auto;
+  row('Scale',sel);row('Frames / cycle',fr);row('Padding (rig px)',pd);
+  const go=document.createElement('button');go.id='expGo';go.className='btn';go.textContent='⬇ Export frames (.zip)';go.onclick=e=>{exportFrames();e.target.blur();};
+  const st=document.createElement('div');st.id='expStatus';st.className='note';
+  const nt=document.createElement('div');nt.className='note';
+  nt.textContent='Exports the current cycle (Run or Walk) as numbered transparent PNGs on one fixed canvas, plus anchors.json (neck, hands, feet, foot contact). It uses everything as set here: bag, strap, boots, sliders and speed. Floor line and pelvis sit on the same pixel in every frame, so the frames stack as layers. Frames: blank = about 24 fps, rounded so every key pose lands exactly on a frame (the first frame is the first key pose). Scale is a whole number of the 800 px art grid; pick 2× or more to paint over.';
+  pn.append(go,st,nt);
 }
 
 /* ---------- boot ---------- */
