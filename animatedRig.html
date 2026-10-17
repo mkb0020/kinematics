@@ -44,16 +44,16 @@ const R2D = Math.PI / 180, FPS = 24;
    part's own pivot-to-pivot axis onto the matching skeleton bone (rotating and stretching it along the bone). */
 const SHEET_URL='assets/images/body_parts.png';   // the head frame is the hooded head; every other frame matches mannequin_side.png
 const ART_NAMES=["head", "chest", "pelvis", "upperArm", "forearm", "handR", "handL", "thigh", "calf", "shoe"];
-const ART_BOX={"head": [320, 120, 155, 182], "chest": [355, 251, 102, 104], "pelvis": [346, 367, 98, 119], "upperArm": [358, 262, 51, 109], "forearm": [359, 330, 66, 100], "handR": [374, 384, 59, 71], "handL": [373, 395, 59, 62], "thigh": [344, 409, 95, 197], "calf": [335, 551, 86, 198], "shoe": [338, 681, 114, 119]};   // [x,y,w,h] crop of each frame (bbox + margin)
+const ART_BOX={"head": [335, 200, 130, 152], "chest": [358, 299, 94, 96], "pelvis": [355, 402, 89, 107], "upperArm": [360, 297, 52, 109], "forearm": [363, 361, 62, 98], "handR": [374, 413, 57, 69], "handL": [374, 422, 56, 59], "thigh": [353, 432, 85, 181], "calf": [340, 557, 80, 188], "shoe": [339, 693, 106, 107]};   // [x,y,w,h] crop of each frame (bbox + margin)
 const ART_PIV={
-  hip:[392.5,448], knee:[391,580], ankle:[372.6,702.8],            // hip = centre of the thigh's top cap / pelvis round; knee = where thigh bottom meets calf top; ankle = boot pivot (sole 96px below, heel 25px behind)
-  shoulder:[383,288], elbow:[382.5,349], wrist:[395,404],          // shoulder = centre of the arm cap; elbow / wrist = joint ends of the arm parts
-  rib:[386,340],                                                   // waist joint: on the hip->shoulder line, at the chest bottom
-  neck:[382.3,276], headPivot:[393,240],                           // neck = 12px above the shoulder along the chest; head turns about the skull base
-  neckFrom:[385,268], neckTo:[393,236],                            // neck line: inside the chest top / inside the hood
-  stomachFrom:[397,390], stomachTo:[398,336],                      // stomach fill: just inside the pelvis top / just inside the chest bottom
-  bagHip:[391,418],                                                // crossbody bag: where its two strap loops hang on the near hip (pelvis art)
-  strapTop:[381,278]                                               // crossbody strap: the apex over the far shoulder (chest art)
+  hip:[395.5,470], knee:[391,586], ankle:[372.5,702.8],            // hip = centre of the thigh's top cap / pelvis round; knee = where thigh bottom meets calf top; ankle = boot pivot (sole 96px below, heel 24px behind)
+  shoulder:[386,323], elbow:[384,383], wrist:[395.5,433],          // shoulder = centre of the arm cap; elbow / wrist = joint ends of the arm parts
+  rib:[389.7,380],                                                 // waist joint: on the hip->shoulder line, at the chest bottom
+  neck:[385.2,311], headPivot:[396,300],                           // neck = 12px above the shoulder along the chest; head turns about the skull base
+  neckFrom:[388,316], neckTo:[396,296],                            // neck line: inside the chest top / inside the hood
+  stomachFrom:[402,424], stomachTo:[401,374],                      // stomach fill: just inside the pelvis top / just inside the chest bottom
+  bagHip:[394,443],                                                // crossbody bag: where its two strap loops hang on the near hip (pelvis art)
+  strapTop:[384,313]                                               // crossbody strap: the apex over the far shoulder (chest art)
 };
 /* Pivot edits made in the Pivots menu are remembered in this browser (localStorage). They are discarded automatically if the
    defaults change. The defaults come from json_files/rig_config.json ("pivots"); the block above holds the built-in defaults. */
@@ -95,9 +95,9 @@ const BASE = { chestDepth:40, neckLen:26, headR:30, bgLight:true, bgGrid:true, g
   stomach:true, stomachWChest:44, stomachWPelvis:50, stomachColor:'#210250',
   bag:true, bagOverArm:false, bagScale:.5, bagSwing:1, bagSurge:.1, bagLean:.6, bagHold:1.2, bagLen:1, bagZ:.25, charmZ:.12,
   strap:true, strapW:10, strapSlack:.08, strapColor:'#37025a', strapEdge:'#170032' };
-/* Measured from the shoe frame of mannequin_side.png: sole 96.2px below the ankle pivot, heel back corner 24.6px behind it,
-   toe-platform front corner 70.4px ahead (contact length 95, heel fraction .259). Bare mannequin foot: sole 39px below, 90px long, heel .22. */
-const FOOT_PRESET={ boot:{soleOff:96.2,footLen:95,heelFrac:.259}, bare:{soleOff:39,footLen:90,heelFrac:.22} };
+/* Measured from the shoe frame of mannequin_side.png: sole 96.2px below the ankle pivot, heel back corner 23.5px behind it,
+   toe-platform front corner 61.5px ahead (contact length 85, heel fraction .276). Bare mannequin foot: sole 39px below, 90px long, heel .22. */
+const FOOT_PRESET={ boot:{soleOff:96.2,footLen:85,heelFrac:.276}, bare:{soleOff:39,footLen:90,heelFrac:.22} };
 const CYCLE_DEFAULTS = {
   run: { spineAngle:45, chestAngle:47, cycleSec:2,  airtime:15, twist:14, hipTwist:10, headBob:2,   headJut:3, neckAngle:44, ssAmt:1 },
   walk:{ spineAngle:84, chestAngle:86, cycleSec:1.1, airtime:0,  twist:8,  hipTwist:6,  headBob:1.5, headJut:1, neckAngle:6,  ssAmt:1 }

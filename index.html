@@ -105,13 +105,13 @@ const CLOAK_FRONT_SRC = "assets/images/cloakTop.png";
 const CLOAK_FRAME_COUNT = 4;
 const CLOAK_FPS = 5;               // wind-loop speed - independent of body pose/frame
 const CLOAK_ANCHOR = { x: 0.6, y: 0.7 }; // where on cloak art the attach point sits
-const CLOAK_SCALE = 1;             // uniform scale on both cloak layers
+const CLOAK_SCALE = 0.95;             // uniform scale on both cloak layers
 
 const CLOAK_POSE = {
-  run:    { x: 47, y: -15, rot: 0 },
-  jump:   { x: 105, y: -125, rot: -20 },
-  fall:   { x: -20, y: -150, rot: 30 },
-  attack: { x: 55, y: -90, rot: 0 },
+  run:    { x: 155, y: -35, rot: 0 },
+  jump:   { x: 220, y: -150, rot: -20 },
+  fall:   { x: 20, y: -60, rot: 30 },
+  attack: { x: 100, y: -10, rot: 0 },
 };
 
 // DRAWS A DOT AT EACH CLOAK'S ATTACH POINT - HELPS WHILE DIALING IN
@@ -137,13 +137,13 @@ const CAPE_START_MODE = 1;
 
 /* ---- mode 1: SPRING + WAVE WARP ---- */
 const CAPE_SPRING_STIFFNESS = 140;   // pull toward the target swing angle (higher = snappier)
-const CAPE_SPRING_DAMPING = 9;       // friction (critical damping would be 2*sqrt(stiffness) = ~23; lower = more wobble)
-const CAPE_SPRING_RUN_ANGLE = 10;    // degrees the cloak swings at full run speed. SIGN DEPENDS ON YOUR ART: + raises the tail of a cape that streams up-and-back, - lowers it; flip it if it swings the wrong way
+const CAPE_SPRING_DAMPING = 50;       // friction (critical damping would be 2*sqrt(stiffness) = ~23; lower = more wobble)
+const CAPE_SPRING_RUN_ANGLE = 0;    // degrees the cloak swings at full run speed. SIGN DEPENDS ON YOUR ART: + raises the tail of a cape that streams up-and-back, - lowers it; flip it if it swings the wrong way
 const CAPE_SPRING_FALL_ANGLE = 18;   // extra degrees when falling fast (negative while rising)
 const CAPE_SPRING_KICK = 260;        // deg/s impulse on jump / landing / dash (the overshoot)
-const CAPE_WARP_STRIPS = 30;         // vertical slices of the art (more = smoother ripple + fewer stair-steps on diagonal edges)
+const CAPE_WARP_STRIPS = 50;         // vertical slices of the art (more = smoother ripple + fewer stair-steps on diagonal edges)
 const CAPE_WARP_AMP = [6, 24];       // ripple height in art px at the tip: [standing, full speed]
-const CAPE_WARP_FREQ = [1.6, 4.2];   // ripple speed in Hz: [standing, full speed]
+const CAPE_WARP_FREQ = [1, 3];   // ripple speed in Hz: [standing, full speed]
 const CAPE_WARP_PHASE = 5.0;         // radians of wave across the cloak's length (more = more S-curves)
 
 /* ---- mode 2: VERLET CLOTH (ribbon) ---- */

@@ -196,6 +196,11 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 .lock svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .lock:hover{color:#fff}
 .lock.on{color:var(--pk)}
+.oni{flex:none;width:24px;height:26px;border:0;background:none;color:#6a6a96;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
+.oni svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.oni:hover{color:#fff}
+.oni.on{color:#ff3b3b}
+.lyr{gap:4px}
 .lyr.locked{border-left:3px solid var(--pk)}
 #stage.drop{outline:2px dashed var(--cy);outline-offset:-4px}
 #fpsWrap{display:flex;align-items:center;gap:6px;margin-left:4px}
@@ -355,7 +360,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       </div>
       <div class="onion-row" style="margin-bottom:0">
         <span class="lbl" style="width:40px">ON</span>
-        <button class="tgl" id="xfAll" style="width:auto;flex:1" data-tip="Choose whether transforms and the Move tool hit this frame or every frame">THIS FRAME</button>
+        <button class="tgl" id="xfAll" style="width:auto;flex:1" data-tip="Choose whether transforms, brightness and the Move tool hit this frame or every frame. Other frames are matched by layer NAME; locked layers are skipped">THIS FRAME</button>
       </div>
   </div>
 
@@ -366,16 +371,16 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 
   <aside id="panel">
     <div class="sec">
-      <h2><span id="layersTitle">Frame 1 / Layers</span> <span class="sub" data-tip="Layers are shared: every frame has the same stack, but each frame has its own pixels">shared</span></h2>
+      <h2><span id="layersTitle">Frame 1 / Layers</span> <span class="sub" data-tip="Every frame has its own layers">per frame</span></h2>
       <div id="layerList"></div>
       <div class="ctlrow lyrbtns" style="margin-bottom:6px">
         <button class="tb sm" id="addLayerBtn" data-tip="Add layer above"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-        <button class="tb sm" id="dupLayerBtn" data-tip="Duplicate layer (copies it in every frame, placed just above)"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        <button class="tb sm" id="dupLayerBtn" data-tip="Duplicate layer (placed just above, this frame only)"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         <button class="tb sm" id="importLayerBtn" data-tip="Import PNG / JPEG as a new layer (or drag image files onto the canvas)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-4.5-4.5L5 21"/></svg></button>
         <button class="tb sm" id="delLayerBtn" data-tip="Delete layer"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg></button>
         <button class="tb sm" id="upLayerBtn" data-tip="Move layer up"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
         <button class="tb sm" id="downLayerBtn" data-tip="Move layer down"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-        <button class="tb sm" id="mergeLayerBtn" data-tip="Merge down &mdash; combine this layer into the one below, in every frame"><svg viewBox="0 0 24 24"><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M4 17h16M7 21h10"/></svg></button>
+        <button class="tb sm" id="mergeLayerBtn" data-tip="Merge down &mdash; combine this layer into the one below (this frame only)"><svg viewBox="0 0 24 24"><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M4 17h16M7 21h10"/></svg></button>
       </div>
       <div class="onion-row" style="margin-bottom:0">
         <span class="lbl">OPACITY</span>
@@ -428,13 +433,10 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
     <div class="sec">
       <h2>Onion skin</h2>
       <div class="onion-row">
-        <button class="tgl prev on" id="onionPrev" data-tip="Previous 2 frames in red (O toggles both)">&#9664; PREV</button>
+        <button class="tgl prev on" id="onionPrev" data-tip="Previous frame in red (O toggles)">&#9664; PREV</button>
         <input type="range" id="onionPrevOp" min="5" max="100" value="35"><output id="onionPrevOut">35%</output>
       </div>
-      <div class="onion-row">
-        <button class="tgl next on" id="onionNext" data-tip="Next frame in cyan (O toggles both)">NEXT &#9654;</button>
-        <input type="range" id="onionNextOp" min="5" max="100" value="35"><output id="onionNextOut">35%</output>
-      </div>
+      <p class="note">Shows the previous frame. Use the onion icon on a layer to choose which of its layers appear in the NEXT frame's onion skin.</p>
     </div>
   </aside>
 
@@ -462,6 +464,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
     <span>POS <b id="stPos">-</b></span>
     <span>UNDO <b id="stUndo">0</b> / REDO <b id="stRedo">0</b></span>
     <span>APPLY TO <b id="stApply">this frame</b></span>
+    <span>PIXELS <b id="stMem">-</b></span>
     <span id="dirty">&#9679; UNEXPORTED WORK</span>
     <span id="stMsg"></span>
   </footer>
@@ -480,18 +483,21 @@ const Engine = (() => {
   const makeCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
 
   class Layer {
-    constructor(w, h, name = 'Layer', key = 0) {
-      this.id = uid++; this.key = key || this.id;   // key is shared by this layer in every frame
+    constructor(w, h, name = 'Layer') {
+      this.id = uid++;
       this.name = name; this.visible = true; this.opacity = 1; this.locked = false;
+      this.onion = true;     // when true (and visible), this layer is drawn in the onion skin of the NEXT frame
       this.canvas = makeCanvas(w, h); this.ctx = this.canvas.getContext('2d');
     }
     clone(w, h) {
-      const l = new Layer(w, h, this.name, this.key);
-      l.visible = this.visible; l.opacity = this.opacity; l.locked = this.locked; l.ctx.drawImage(this.canvas, 0, 0);
+      const l = new Layer(w, h, this.name);
+      l.visible = this.visible; l.opacity = this.opacity; l.locked = this.locked; l.onion = this.onion;
+      l.ctx.drawImage(this.canvas, 0, 0);
       return l;
     }
   }
 
+  // A frame owns its own layer stack (index 0 = bottom) and remembers which layer is selected.
   class Frame {
     constructor(w, h, empty = false) {
       this.id = uid++;
@@ -502,12 +508,6 @@ const Engine = (() => {
     clone(w, h) {
       const f = new Frame(w, h, true);
       f.layers = this.layers.map(l => l.clone(w, h)); f.activeLayer = this.activeLayer;
-      return f;
-    }
-    // A blank frame with the same layer stack (names, visibility, opacity) as src.
-    static like(src, w, h) {
-      const f = new Frame(w, h, true);
-      f.layers = src.layers.map(l => { const n = new Layer(w, h, l.name, l.key); n.visible = l.visible; n.opacity = l.opacity; n.locked = l.locked; return n; });
       return f;
     }
   }
@@ -537,12 +537,13 @@ const Engine = (() => {
       this.fps = 12;
       this.history = new History();
       this.dirty = false;            // true when there is work not yet exported
-      this.activeLayer = 0;          // selected layer index (same stack in every frame)
-      this.layerSeq = 1;             // for naming new layers
       scratch.width = w; scratch.height = h;
     }
     get frame() { return this.frames[this.currentFrame]; }
-    get layer() { return this.frame.layers[this.activeLayer]; }
+    // Every frame has its own layers and its own selected layer.
+    get activeLayer() { return this.frame.activeLayer; }
+    set activeLayer(i) { this.frame.activeLayer = i; }
+    get layer() { return this.frame.layers[this.frame.activeLayer]; }
 
     selectFrame(i) { this.currentFrame = Math.min(this.frames.length - 1, Math.max(0, i)); }
 
@@ -556,7 +557,7 @@ const Engine = (() => {
         redo: () => { this.frames.splice(i, 0, f); this.currentFrame = i; }
       });
     }
-    addFrame() { this._insertFrame(Frame.like(this.frame, this.width, this.height), this.currentFrame + 1, 'Add frame'); }
+    addFrame() { this._insertFrame(new Frame(this.width, this.height), this.currentFrame + 1, 'Add frame'); }   // one blank layer
     duplicateFrame() { this._insertFrame(this.frame.clone(this.width, this.height), this.currentFrame + 1, 'Duplicate frame'); }
     deleteFrame() {
       if (this.frames.length <= 1) return false;
@@ -583,85 +584,87 @@ const Engine = (() => {
       return true;
     }
 
-    // Layer actions. The stack is shared: every action applies at the same index in every frame,
-    // so frames always have matching layers. Pixels stay per frame. Index 0 is the bottom layer.
+    // Layer actions. Each frame has its own stack, so every action touches the CURRENT frame only.
+    // Index 0 is the bottom layer. History entries carry `frame` so undo/redo jumps back to it.
     selectLayer(i) { this.activeLayer = Math.min(this.frame.layers.length - 1, Math.max(0, i)); }
-    // opts.draw(ctx) paints into the new layer of the CURRENT frame only (other frames get blank ones).
+    _nextName(f) {            // "Layer N", skipping names already used in this frame
+      let n = f.layers.length + 1;
+      while (f.layers.some(l => l.name === 'Layer ' + n)) n++;
+      return 'Layer ' + n;
+    }
+    // opts.draw(ctx) paints into the new layer right away.
     addLayer(opts = {}) {
-      const at = this.activeLayer + 1, prev = this.activeLayer, name = opts.name || 'Layer ' + (++this.layerSeq);
-      const made = new Map(), key = uid++;
-      for (const f of this.frames) { const l = new Layer(this.width, this.height, name, key); made.set(f, l); f.layers.splice(at, 0, l); }
-      if (opts.draw) opts.draw(made.get(this.frame).ctx);
-      this.activeLayer = at; this.dirty = true;
+      const f = this.frame, at = f.activeLayer + 1, prev = f.activeLayer;
+      const l = new Layer(this.width, this.height, opts.name || this._nextName(f));
+      f.layers.splice(at, 0, l);
+      if (opts.draw) opts.draw(l.ctx);
+      f.activeLayer = at; this.dirty = true;
       this.history.push({
-        label: opts.label || 'Add layer', bytes: opts.draw ? this.width * this.height * 4 : 0,
-        undo: () => { for (const f of this.frames) { const k = f.layers.indexOf(made.get(f)); if (k >= 0) f.layers.splice(k, 1); } this.selectLayer(prev); },
-        redo: () => { for (const f of this.frames) { const l = made.get(f); if (l) f.layers.splice(at, 0, l); } this.activeLayer = at; }
+        label: opts.label || 'Add layer', frame: f, bytes: opts.draw ? this.width * this.height * 4 : 0,
+        undo: () => { const k = f.layers.indexOf(l); if (k >= 0) f.layers.splice(k, 1); f.activeLayer = Math.min(prev, f.layers.length - 1); },
+        redo: () => { f.layers.splice(at, 0, l); f.activeLayer = at; }
       });
       return true;
     }
     deleteLayer() {
-      if (this.frame.layers.length <= 1) return false;
-      const i = this.activeLayer, removed = new Map();
-      for (const f of this.frames) removed.set(f, f.layers.splice(i, 1)[0]);
-      this.selectLayer(i); this.dirty = true;
+      const f = this.frame;
+      if (f.layers.length <= 1) return false;
+      const i = f.activeLayer, l = f.layers.splice(i, 1)[0];
+      f.activeLayer = Math.min(i, f.layers.length - 1); this.dirty = true;
       this.history.push({
-        label: 'Delete layer', bytes: this.frames.length * this.width * this.height * 4,
-        undo: () => { for (const f of this.frames) { const l = removed.get(f); if (l) f.layers.splice(i, 0, l); } this.activeLayer = i; },
-        redo: () => { for (const f of this.frames) f.layers.splice(i, 1); this.selectLayer(i); }
+        label: 'Delete layer', frame: f, bytes: this.width * this.height * 4,
+        undo: () => { f.layers.splice(i, 0, l); f.activeLayer = i; },
+        redo: () => { f.layers.splice(i, 1); f.activeLayer = Math.min(i, f.layers.length - 1); }
       });
       return true;
     }
-    _moveLayer(from, to) {
-      for (const f of this.frames) { const l = f.layers.splice(from, 1)[0]; f.layers.splice(to, 0, l); }
-      this.activeLayer = to;
+    _moveLayer(f, from, to) {
+      const l = f.layers.splice(from, 1)[0]; f.layers.splice(to, 0, l);
+      f.activeLayer = to;
     }
     moveLayer(dir) {            // +1 = up (toward the top of the stack), -1 = down
-      const from = this.activeLayer, to = from + dir;
-      if (to < 0 || to >= this.frame.layers.length) return false;
-      this._moveLayer(from, to); this.dirty = true;
+      const f = this.frame, from = f.activeLayer, to = from + dir;
+      if (to < 0 || to >= f.layers.length) return false;
+      this._moveLayer(f, from, to); this.dirty = true;
       this.history.push({
-        label: 'Move layer', bytes: 0,
-        undo: () => this._moveLayer(to, from),
-        redo: () => this._moveLayer(from, to)
+        label: 'Move layer', frame: f, bytes: 0,
+        undo: () => this._moveLayer(f, to, from),
+        redo: () => this._moveLayer(f, from, to)
       });
       return true;
     }
-    // name / visible / opacity. preview applies without history (live slider drag); commit records it.
-    previewLayerProp(i, key, v) { for (const f of this.frames) { const l = f.layers[i]; if (l) l[key] = v; } }
-    commitLayerProp(i, key, oldV, newV, label) {
+    // name / visible / opacity / locked / onion. preview applies without history (live slider drag); commit records it.
+    previewLayerProp(i, key, v, f = this.frame) { const l = f.layers[i]; if (l) l[key] = v; }
+    commitLayerProp(i, key, oldV, newV, label, f = this.frame) {
       this.dirty = true;
       this.history.push({
-        label, bytes: 0,
-        undo: () => { this.previewLayerProp(i, key, oldV); this.activeLayer = i; },
-        redo: () => { this.previewLayerProp(i, key, newV); this.activeLayer = i; }
+        label, frame: f, bytes: 0,
+        undo: () => { this.previewLayerProp(i, key, oldV, f); f.activeLayer = i; },
+        redo: () => { this.previewLayerProp(i, key, newV, f); f.activeLayer = i; }
       });
     }
     setLayerProp(i, key, v, label) {
-      const oldV = this.frame.layers[i][key];
+      const f = this.frame, oldV = f.layers[i][key];
       if (oldV === v) return;
-      this.previewLayerProp(i, key, v); this.commitLayerProp(i, key, oldV, v, label);
+      this.previewLayerProp(i, key, v, f); this.commitLayerProp(i, key, oldV, v, label, f);
     }
 
-    // Copy the active layer (all frames' pixels) into a new layer just above it.
+    // Copy the active layer into a new layer just above it (this frame only).
     duplicateLayer() {
-      const i = this.activeLayer, at = i + 1, w = this.width, h = this.height, key = uid++, made = new Map();
-      const base = this.layer.name.length > 19 ? this.layer.name.slice(0, 19) : this.layer.name;
-      for (const f of this.frames) {
-        const src = f.layers[i], l = new Layer(w, h, base + ' copy', key);
-        l.visible = src.visible; l.opacity = src.opacity; l.ctx.drawImage(src.canvas, 0, 0);
-        made.set(f, l); f.layers.splice(at, 0, l);
-      }
-      this.activeLayer = at; this.dirty = true;
+      const f = this.frame, i = f.activeLayer, at = i + 1, w = this.width, h = this.height, src = f.layers[i];
+      const base = src.name.length > 19 ? src.name.slice(0, 19) : src.name;
+      const l = new Layer(w, h, base + ' copy');
+      l.visible = src.visible; l.opacity = src.opacity; l.onion = src.onion; l.ctx.drawImage(src.canvas, 0, 0);
+      f.layers.splice(at, 0, l); f.activeLayer = at; this.dirty = true;
       this.history.push({
-        label: 'Duplicate layer', bytes: this.frames.length * w * h * 4,
-        undo: () => { for (const f of this.frames) { const k = f.layers.indexOf(made.get(f)); if (k >= 0) f.layers.splice(k, 1); } this.selectLayer(i); },
-        redo: () => { for (const f of this.frames) { const l = made.get(f); if (l) f.layers.splice(at, 0, l); } this.activeLayer = at; }
+        label: 'Duplicate layer', frame: f, bytes: w * h * 4,
+        undo: () => { const k = f.layers.indexOf(l); if (k >= 0) f.layers.splice(k, 1); f.activeLayer = Math.min(i, f.layers.length - 1); },
+        redo: () => { f.layers.splice(at, 0, l); f.activeLayer = at; }
       });
       return true;
     }
 
-    // Merge the active layer down into the layer below, in every frame. The lower layer keeps its
+    // Merge the active layer down into the layer below (this frame only). The lower layer keeps its
     // own name / opacity; the upper layer's pixels are drawn in at the upper layer's opacity.
     canMergeDown() {
       const i = this.activeLayer;
@@ -675,34 +678,42 @@ const Engine = (() => {
     }
     mergeDown() {
       if (this.canMergeDown()) return false;
-      const i = this.activeLayer, w = this.width, h = this.height;
-      const rec = this.frames.map(f => ({ f, up: f.layers[i], lo: f.layers[i - 1], before: f.layers[i - 1].ctx.getImageData(0, 0, w, h) }));
+      const f = this.frame, i = f.activeLayer, w = this.width, h = this.height;
+      const up = f.layers[i], lo = f.layers[i - 1], before = lo.ctx.getImageData(0, 0, w, h);
       const apply = () => {
-        for (const r of rec) {
-          const c = r.lo.ctx; c.save(); c.globalCompositeOperation = 'source-over'; c.globalAlpha = r.up.opacity;
-          c.drawImage(r.up.canvas, 0, 0); c.restore();
-          r.f.layers.splice(r.f.layers.indexOf(r.up), 1);
-        }
-        this.activeLayer = i - 1;
+        const c = lo.ctx; c.save(); c.globalCompositeOperation = 'source-over'; c.globalAlpha = up.opacity;
+        c.drawImage(up.canvas, 0, 0); c.restore();
+        const k = f.layers.indexOf(up); if (k >= 0) f.layers.splice(k, 1);
+        f.activeLayer = i - 1;
       };
-      const upLayer = this.layer;
       apply(); this.dirty = true;
       this.history.push({
-        label: 'Merge layer down', frame: this.frame, layer: upLayer, thumbsAll: true, bytes: rec.length * w * h * 8,
-        undo: () => {
-          for (const r of rec) { r.lo.ctx.putImageData(r.before, 0, 0); r.f.layers.splice(i, 0, r.up); }
-          this.activeLayer = i;
-        },
+        label: 'Merge layer down', frame: f, layer: up, bytes: w * h * 8,
+        undo: () => { lo.ctx.putImageData(before, 0, 0); f.layers.splice(i, 0, up); f.activeLayer = i; },
         redo: apply
       });
       return true;
     }
 
+    // The layers an edit should hit: just the active one, or (all = true) the active layer plus the
+    // layer with the SAME NAME in every other frame. Locked layers in other frames are skipped.
+    targetLayers(all) {
+      const cur = this.layer;
+      if (!all) return [cur];
+      const out = [];
+      for (const f of this.frames) {
+        if (f === this.frame) { out.push(cur); continue; }
+        const m = f.layers.find(l => l.name === cur.name && !l.locked);
+        if (m) out.push(m);
+      }
+      return out;
+    }
+
     // Transform the selected layer: op = flipH | flipV | rot (degrees, clockwise) | scale (factor).
-    // allFrames applies it to the same layer in every frame. One undo step either way.
+    // allFrames also applies it to the same-named layer in every other frame. One undo step either way.
     transformLayer(op, v, allFrames) {
-      const i = this.activeLayer, w = this.width, h = this.height;
-      const layers = (allFrames ? this.frames : [this.frame]).map(f => f.layers[i]).filter(Boolean);
+      const w = this.width, h = this.height;
+      const layers = this.targetLayers(allFrames);
       const before = layers.map(l => l.ctx.getImageData(0, 0, w, h));
       layers.forEach(l => applyTransform(l, w, h, op, v));
       const after = layers.map(l => l.ctx.getImageData(0, 0, w, h));
@@ -713,7 +724,7 @@ const Engine = (() => {
         undo: () => layers.forEach((l, k) => l.ctx.putImageData(before[k], 0, 0)),
         redo: () => layers.forEach((l, k) => l.ctx.putImageData(after[k], 0, 0))
       });
-      return true;
+      return layers.length;
     }
   }
 
@@ -782,8 +793,8 @@ const Engine = (() => {
   // every target layer (this frame or all frames) as one undo step; cancel() puts the pixels back.
   class LayerAdjust {
     constructor(project, allFrames) {
-      this.p = project; const w = project.width, h = project.height, i = project.activeLayer;
-      this.layers = (allFrames ? project.frames : [project.frame]).map(f => f.layers[i]).filter(Boolean);
+      this.p = project; const w = project.width, h = project.height;
+      this.layers = project.targetLayers(allFrames);      // this layer, plus same-named layers in other frames
       this.cur = project.layer; this.frame = project.frame;
       this.base = this.cur.ctx.getImageData(0, 0, w, h);
       this.work = this.cur.ctx.createImageData(w, h);
@@ -821,8 +832,8 @@ const Engine = (() => {
   // Pixels still outside the frame at commit are dropped (undo brings them back).
   class LayerShift {
     constructor(project, allFrames) {
-      this.p = project; const w = project.width, h = project.height, i = project.activeLayer;
-      this.layers = (allFrames ? project.frames : [project.frame]).map(f => f.layers[i]).filter(Boolean);
+      this.p = project; const w = project.width, h = project.height;
+      this.layers = project.targetLayers(allFrames);      // this layer, plus same-named layers in other frames
       this.frame = project.frame; this.layer = project.layer;
       this.src = this.layers.map(l => { const c = makeCanvas(w, h); c.getContext('2d').drawImage(l.canvas, 0, 0); return c; });
       this.dx = 0; this.dy = 0;
@@ -1122,7 +1133,8 @@ const Engine = (() => {
   }
 
   // Onion skin: neighboring frames as flat color silhouettes (alpha kept, color replaced),
-  // drawn furthest first. Previous frames fade: the second one back is half as strong.
+  // drawn furthest first. Only layers that are visible AND have their onion flag on are included,
+  // so you can ghost just the line art and leave backgrounds / color fills out.
   let onionTmp = null;
   function renderOnion(ctx, project, o) {
     const W = ctx.canvas.width, H = ctx.canvas.height;
@@ -1137,7 +1149,7 @@ const Engine = (() => {
     if (!onionTmp || onionTmp.width !== W || onionTmp.height !== H) onionTmp = makeCanvas(W, H);
     const t = onionTmp.getContext('2d');
     for (const it of list) {
-      composite(t, it.f);
+      composite(t, it.f, true);
       t.globalCompositeOperation = 'source-in'; t.fillStyle = it.color; t.fillRect(0, 0, W, H);
       t.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = it.a; ctx.drawImage(onionTmp, 0, 0);
@@ -1145,10 +1157,10 @@ const Engine = (() => {
     ctx.globalAlpha = 1;
   }
 
-  function composite(ctx, frame) {
+  function composite(ctx, frame, onionOnly = false) {
     const c = ctx.canvas; ctx.clearRect(0, 0, c.width, c.height);
     for (const l of frame.layers) {
-      if (!l.visible) continue;
+      if (!l.visible || (onionOnly && !l.onion)) continue;
       ctx.globalAlpha = l.opacity; ctx.drawImage(l.canvas, 0, 0);
     }
     ctx.globalAlpha = 1;
@@ -1256,7 +1268,9 @@ const Engine = (() => {
   const state = { tool: 'brush', brushId: 'pen', sizes: { pen: 2, brush: 20, eraser: 10, blur: 20 }, size: 2, color: '#000000', filled: false, paperColor: '#ffffff', fillTol: 30, fillExpand: 1, fillSrc: 'active', blurStr: 30, zoom: 1, panX: 0, panY: 0, space: false };
 
   /* ---------- onion skin ---------- */
-  const onion = { prev: true, next: true, prevCount: 2, prevOpacity: 0.35, nextOpacity: 0.35, prevColor: '#ff3b3b', nextColor: '#00ffff' };
+  // One previous frame only (cheaper and plenty for tracing). The engine still understands next / prevCount
+  // if you ever want them back: set next: true and add the NEXT row to the panel.
+  const onion = { prev: true, next: false, prevCount: 1, prevOpacity: 0.35, nextOpacity: 0.35, prevColor: '#ff3b3b', nextColor: '#00ffff' };
   let onionRaf = 0;
   // Only redrawn when the frame, neighbors or settings change, never while you draw.
   function requestOnion() {
@@ -1265,13 +1279,10 @@ const Engine = (() => {
   }
   function syncOnionUI() {
     $('#onionPrev').classList.toggle('on', onion.prev);
-    $('#onionNext').classList.toggle('on', onion.next);
   }
   $('#onionPrev').addEventListener('click', () => { onion.prev = !onion.prev; syncOnionUI(); requestOnion(); });
-  $('#onionNext').addEventListener('click', () => { onion.next = !onion.next; syncOnionUI(); requestOnion(); });
   $('#onionPrevOp').addEventListener('input', e => { onion.prevOpacity = e.target.value / 100; $('#onionPrevOut').textContent = e.target.value + '%'; requestOnion(); });
-  $('#onionNextOp').addEventListener('input', e => { onion.nextOpacity = e.target.value / 100; $('#onionNextOut').textContent = e.target.value + '%'; requestOnion(); });
-  function toggleOnion() { const on = !(onion.prev || onion.next); onion.prev = onion.next = on; syncOnionUI(); requestOnion(); }
+  function toggleOnion() { onion.prev = !onion.prev; syncOnionUI(); requestOnion(); }
 
   /* ---------- rendering ---------- */
   let raf = 0;
@@ -1300,6 +1311,8 @@ const Engine = (() => {
     $('#redoBtn').disabled = !history.redoStack.length;
     $('#dirty').classList.toggle('on', project.dirty);
     const n = project.frames.length, cur = project.currentFrame;
+    const nLayers = project.frames.reduce((s, f) => s + f.layers.length, 0);      // each layer is a full-size canvas
+    $('#stMem').textContent = nLayers + ' layers / ~' + Math.round(nLayers * project.width * project.height * 4 / 1048576) + ' MB';
     updateTarget();
     updateExportInfo();
     $('#delFrameBtn').disabled = n <= 1;
@@ -1781,6 +1794,8 @@ const Engine = (() => {
   const EYE_OFF = '<path d="M3 3l18 18"/><path d="M10.6 6.1A9.9 9.9 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.6 6.7C3.9 8.5 2 12 2 12s3.5 7 10 7c1.6 0 3-.3 4.3-.9"/>';
   const LOCK_ON = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
   const LOCK_OFF = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>';
+  const ONI_ON = '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>';
+  const ONI_OFF = '<circle cx="9" cy="12" r="6" stroke-dasharray="2.5 3"/><circle cx="15" cy="12" r="6" stroke-dasharray="2.5 3"/>';
   let msgTimer = 0, opStart = null;
   // Why the active layer can't be edited right now (locked / hidden), or null.
   function editBlock(verb) {
@@ -1810,7 +1825,11 @@ const Engine = (() => {
       lk.className = 'lock' + (l.locked ? ' on' : '');
       lk.dataset.tip = l.locked ? 'Unlock layer' : 'Lock layer (blocks drawing, move, transforms and merge)';
       lk.innerHTML = '<svg viewBox="0 0 24 24">' + (l.locked ? LOCK_ON : LOCK_OFF) + '</svg>';
-      row.append(eye, c, nm, lk); layerList.appendChild(row);
+      const oni = document.createElement('button');
+      oni.className = 'oni' + (l.onion ? ' on' : '');
+      oni.dataset.tip = l.onion ? 'Shown as onion skin in the next frame (click to exclude)' : 'Not shown as onion skin in the next frame (click to include)';
+      oni.innerHTML = '<svg viewBox="0 0 24 24">' + (l.onion ? ONI_ON : ONI_OFF) + '</svg>';
+      row.append(eye, c, nm, oni, lk); layerList.appendChild(row);
       Engine.renderLayerThumb(l, c);
     }
     syncLayerSel(); updateFillSources();
@@ -1838,6 +1857,12 @@ const Engine = (() => {
     if (!frameGuard()) return;
     if (e.target.closest('.eye')) {
       project.setLayerProp(i, 'visible', !project.frame.layers[i].visible, 'Toggle layer visibility');
+      return;
+    }
+    if (e.target.closest('.oni')) {
+      const nv = !project.frame.layers[i].onion;
+      project.setLayerProp(i, 'onion', nv, nv ? 'Include layer in onion skin' : 'Exclude layer from onion skin');
+      flash(project.frame.layers[i].name + (nv ? ': in next frame’s onion skin' : ': left out of onion skin'));
       return;
     }
     if (e.target.closest('.lock')) {
@@ -1950,7 +1975,7 @@ const Engine = (() => {
     sel.innerHTML = '';
     const add = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
     add('active', 'Selected layer');
-    for (let i = ls.length - 1; i >= 0; i--) add(String(ls[i].key), ls[i].name);
+    for (let i = ls.length - 1; i >= 0; i--) add('n:' + ls[i].name, ls[i].name);   // by name, so it carries across frames
     add('all', 'All visible layers');
     if (![...sel.options].some(o => o.value === state.fillSrc)) state.fillSrc = 'active';
     sel.value = state.fillSrc;
@@ -1960,7 +1985,7 @@ const Engine = (() => {
     let source;
     if (state.fillSrc === 'all') source = 'all';
     else if (state.fillSrc === 'active') source = project.layer;
-    else source = project.frame.layers.find(l => String(l.key) === state.fillSrc) || project.layer;
+    else source = project.frame.layers.find(l => 'n:' + l.name === state.fillSrc) || project.layer;
     Engine.bucketFill(project, {
       x: p.x, y: p.y, color: state.color, tol: state.fillTol / 100 * 255,
       expand: state.fillExpand, source, target: project.layer, clear: state.fillClear
@@ -1984,8 +2009,8 @@ const Engine = (() => {
   function applyXf(op, v) {
     if (!frameGuard()) return;
     if (project.layer.locked) { flash(project.layer.name + ' is locked: unlock it to transform'); return; }
-    project.transformLayer(op, v, xfAll);
-    if (xfAll) project.frames.forEach((_, i) => drawThumb(i));
+    const hit = project.transformLayer(op, v, xfAll);
+    if (xfAll) { project.frames.forEach((_, i) => drawThumb(i)); flash('Transformed "' + project.layer.name + '" in ' + hit + ' of ' + project.frames.length + ' frames'); }
   }
   $('#flipHBtn').addEventListener('click', () => applyXf('flipH'));
   $('#flipVBtn').addEventListener('click', () => applyXf('flipV'));

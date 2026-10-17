@@ -8,32 +8,32 @@
     "notes": "Lengths come from the side-view art in its standing pose. Torso values are the hip-to-waist and waist-to-neck distances used by the rig (neckToChest includes the 12 px from shoulder to chest top)."
   },
   "bones": {
-    "thigh": { "length": 132.0, "from": "hip", "to": "knee", "angleKey": "thigh" },
-    "shin": { "length": 124.2, "from": "knee", "to": "ankle", "angleKey": "shin" },
-    "upperArm": { "length": 61.0, "from": "shoulder", "to": "elbow", "angleKey": "upperArm" },
-    "forearm": { "length": 56.4, "from": "elbow", "to": "wrist", "angleKey": "forearm" }
+    "thigh": { "length": 116.1, "from": "hip", "to": "knee", "angleKey": "thigh" },
+    "shin": { "length": 118.3, "from": "knee", "to": "ankle", "angleKey": "shin" },
+    "upperArm": { "length": 60.0, "from": "shoulder", "to": "elbow", "angleKey": "upperArm" },
+    "forearm": { "length": 51.3, "from": "elbow", "to": "wrist", "angleKey": "forearm" }
   },
   "derived": {
-    "legLength": 256.2,
-    "armLength": 117.4,
-    "shinToThighRatio": 0.94,
-    "forearmToUpperArmRatio": 0.92
+    "legLength": 234.3,
+    "armLength": 111.3,
+    "shinToThighRatio": 1.02,
+    "forearmToUpperArmRatio": 0.85
   },
   "torso": {
-    "neckToChest": 64.1,
-    "chestToPelvis": 108.2,
+    "neckToChest": 69.1,
+    "chestToPelvis": 90.2,
     "shoulderToNeck": 12.0
   },
   "referenceJoints": {
     "note": "Side-view joint centres of the standing art, in px in the 800x800 frame (same numbers as rig_config.json pivots).",
-    "neck": { "x": 382.3, "y": 276 },
-    "rib": { "x": 386, "y": 340 },
-    "shoulder": { "x": 383, "y": 288 },
-    "elbow": { "x": 382.5, "y": 349 },
-    "wrist": { "x": 395, "y": 404 },
-    "hip": { "x": 392.5, "y": 448 },
-    "knee": { "x": 391, "y": 580 },
-    "ankle": { "x": 372.6, "y": 702.8 },
-    "headPivot": { "x": 393, "y": 240 }
+    "neck": { "x": 385.2, "y": 311 },
+    "rib": { "x": 389.7, "y": 380 },
+    "shoulder": { "x": 386, "y": 323 },
+    "elbow": { "x": 384, "y": 383 },
+    "wrist": { "x": 395.5, "y": 433 },
+    "hip": { "x": 395.5, "y": 470 },
+    "knee": { "x": 391, "y": 586 },
+    "ankle": { "x": 372.5, "y": 702.8 },
+    "headPivot": { "x": 396, "y": 300 }
   }
 }
