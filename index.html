@@ -26,23 +26,27 @@
 <script type="module">
 import kaplay from "https://cdn.jsdelivr.net/npm/kaplay@3001.0.19/dist/kaplay.mjs";
 
-/* ---------- CONFIG ----------
-   SHEET IS 2 ROWS x 9 COLS, ROW-MAJOR FROM TOP-LEFT. WITH sliceX=9/sliceY=2:
-     ROW 1 (top):    cols 0-7 run cycle, col 8 blank/unused
-     ROW 2 (bottom): col 0-3 idle, col 4 jump/launch, col 5 descending,
-                     col 6 attack (spell), col 7 attack (kick), col 8 wall slide */
-const SLICE_X = 9;
-const SLICE_Y = 2;
-const RUN = { from: 0, to: 7 };
-const IDLE = { from: 9, to: 12 };   // cape baked into these 4 frames
-const JUMP_FRAME = 13;              // launch / rising
-const FALL_FRAME = 14;              // descending
-const ATTACK_FRAME = 15;            // spell attack
-const KICK_FRAME = 16;              // melee kick - cape baked in, no cloak overlay
-const WALL_SLIDE_FRAME = 17;        // wall slide - cape baked in, no cloak overlay
+/* ---------- PLAYER SHEETS ----------
+   ONE SPRITE SHEET PER MOVEMENT, EACH A SINGLE ROW OF EQUAL-SIZE FRAMES
+   (frames = HOW MANY IN THAT ROW). TO REWORK A MOVE, JUST REPLACE ITS PNG
+   (AND UPDATE frames IF THE COUNT CHANGED) - NOTHING ELSE TO RE-COUNT.
+   FRAMES ARE EXPECTED AT PLAYER_FRAME x PLAYER_FRAME (400x400). A SHEET WITH A
+   DIFFERENT CELL SIZE STILL LOADS - IT'S SCALED TO FIT AND A CONSOLE WARNING
+   IS LOGGED - BUT RESIZE IT WHEN YOU CAN. WHICH SHEETS PLAY WHICH ANIMATION
+   (AND HOW FAST) IS IN PLAYER_ANIMS FURTHER DOWN. */
+const PLAYER_FRAME = 400;
+const PLAYER_SHEETS = {
+  run:        { src: "assets/images/run.png",        frames: 8 },
+  idle:       { src: "assets/images/idle.png",       frames: 1 },
+  jump:       { src: "assets/images/jump.png",       frames: 2 }, // 0 = launch / rising, 1 = fall
+  wall_slide: { src: "assets/images/wall_slide.png", frames: 1 },
+  attack:     { src: "assets/images/attack.png",     frames: 2 }, // spell cast - cape baked in
+  kick:       { src: "assets/images/kick.png",       frames: 6 }, // melee kick - cape baked in
+};
+const RUN = { from: 0, to: 7 };   // FRAMES INSIDE THE RUN SHEET
 
 /* ---------- WALL SLIDE VISUAL OFFSET ----------
-   UNLIKE THE OTHER FRAMES, WALL_SLIDE_FRAME'S ART ISN'T CENTERED IN ITS CELL -
+   UNLIKE THE OTHER FRAMES, THE WALL SLIDE FRAME'S ART ISN'T CENTERED IN ITS CELL -
    THE CHARACTER (FACING RIGHT, AS DRAWN) SITS TOWARD THE LEFT EDGE, WITH THE
    GRABBING HAND/FOOT RIGHT AT THE CELL'S LEFT EDGE. kaplay's anchor("bot")
    CENTERS ON THE CELL, NOT THE VISIBLE PIXELS, AND flipX MIRRORS AROUND THAT
@@ -51,13 +55,13 @@ const WALL_SLIDE_FRAME = 17;        // wall slide - cape baked in, no cloak over
    THIS SHIFTS THE DRAWN SPRITE (VISUAL ONLY - HITBOX/PHYSICS NEVER MOVE, SAME
    TRICK AS visualLift) BY THIS MANY PIXELS WHILE WALL-SLIDING, TO RE-CENTER
    THE RAW (FACING-RIGHT) ART ON THE ANCHOR. TO MEASURE IT EXACTLY: OPEN
-   player.png, FIND THE WALL_SLIDE_FRAME CELL, AND COMPUTE
+   wall_slide.png AND COMPUTE
    (CELL_WIDTH / 2) - (X OF THE CHARACTER'S VISUAL CENTERLINE WITHIN THE CELL).
    IF THE SIGN LOOKS BACKWARDS (CHARACTER SHIFTS THE WRONG WAY) NEGATE IT. */
 const WALL_SLIDE_VISUAL_OFFSET_X = 150; // px - TUNE ME against a wall with F1 debug open
 
 /* ---------- AIR ANIMATION ----------
-   PICK RISING (JUMP_FRAME) OR DESCENT (FALL_FRAME) BASED ON vel.y. */
+   PICK RISING ("jump") OR DESCENT ("fall") BASED ON vel.y. */
 const FALL_VEL_THRESHOLD = 30; // vel.y (px/s, down = +) above which rising -> falling
 
 /* ---------- RUN CYCLE FEEL ----------
@@ -73,7 +77,7 @@ const POSES = {
   takeoff: { hold: 1.0, lift: 3 },
   up:      { hold: 1.6, lift: 7 }, // longest, highest
 };
-// WHAT EACH OF THE 8 RUN FRAMES IS, IN ORDER (SHEET FRAMES RUN.from..RUN.to)
+// WHAT EACH OF THE 8 RUN FRAMES IS, IN ORDER (RUN SHEET FRAMES RUN.from..RUN.to)
 const RUN_POSE_ORDER = [
   "contact", "passing", "takeoff", "up",
   "contact", "passing", "takeoff", "up",
@@ -84,12 +88,10 @@ const RUN_CYCLE = RUN_POSE_ORDER.map((pose, i) => ({
   lift: POSES[pose].lift,
 }));
 
-const SPRITE_SRC = "assets/images/player.png"; // <- POINT AT YOUR REAL SHEET, E.G. "./sprites/character.png"
-                          //    LEAVE null TO USE THE GENERATED PLACEHOLDER BELOW
-
 /* ---------- CLOAK OVERLAY CONFIG ----------
-   idle, attackKick, AND wallSlide ALREADY HAVE THE CAPE BAKED INTO
-   player.png, SO THE OVERLAY ONLY COVERS run/jump/fall/attack (spell).
+   attack AND attackKick HAVE THE CAPE BAKED INTO THEIR SHEETS, SO THE OVERLAY
+   SKIPS THEM. idle AND wallSlide HAVE NO CAPE AT ALL YET (LEFT AS-IS FOR NOW) -
+   THEY SKIP THE OVERLAY TOO. SO IT ONLY COVERS run/jump/fall (SEE CAPE_BAKED_ANIMS).
    TWO LAYERS - cloakBack (BEHIND BODY) AND cloakFront (IN FRONT OF
    BODY/ARM) - SANDWICH THE PLAYER SPRITE. BOTH PLAY THE SAME 4-FRAME
    "WIND" LOOP DRIVEN BY OUR OWN TIMER (NOT KAPLAY'S ANIM SYSTEM).
@@ -108,11 +110,14 @@ const CLOAK_ANCHOR = { x: 0.6, y: 0.7 }; // where on cloak art the attach point 
 const CLOAK_SCALE = 0.95;             // uniform scale on both cloak layers
 
 const CLOAK_POSE = {
-  run:    { x: 155, y: -35, rot: 0 },
-  jump:   { x: 220, y: -150, rot: -20 },
-  fall:   { x: 20, y: -60, rot: 30 },
-  attack: { x: 100, y: -10, rot: 0 },
+  run:    { x: 143, y: -35, rot: 0 },
+  jump:   { x: 220, y: -115, rot: -20 },
+  fall:   { x: 30, y: -60, rot: 30 },
+  attack: { x: 100, y: -10, rot: 0 }, // UNUSED WHILE attack.png HAS THE CAPE BAKED IN
 };
+
+// ANIMS WHOSE SHEET HAS NO CAPE TO LAYER ONE ON (EITHER BAKED IN, OR NONE DRAWN YET)
+const CAPE_BAKED_ANIMS = new Set(["idle", "attack", "attackKick", "wallSlide"]);
 
 // DRAWS A DOT AT EACH CLOAK'S ATTACH POINT - HELPS WHILE DIALING IN
 // CLOAK_POSE x/y ABOVE.
@@ -129,8 +134,9 @@ const CLOAK_DEBUG_MARKERS = false;
      2  verlet cloth   - NO ART: A CHAIN OF POINTS SIMULATED WITH VERLET INTEGRATION
                          (GRAVITY + AIR DRAG + DISTANCE CONSTRAINTS), DRAWN AS A TAPERED
                          NEON RIBBON BEHIND THE BODY. REPLACES THE CLOAK OVERLAY
-   THE CAPE BAKED INTO idle / kick / wall-slide FRAMES STAYS AS DRAWN IN EVERY MODE -
-   A FULL REPLACEMENT NEEDS THOSE BODY FRAMES REDRAWN WITHOUT THE CAPE.
+   THE CAPE BAKED INTO THE attack / kick SHEETS STAYS AS DRAWN IN EVERY MODE (idle /
+   wall slide HAVE NO CAPE YET) - A FULL REPLACEMENT NEEDS THOSE BODY FRAMES REDRAWN
+   WITHOUT THE CAPE.
    EVERY NUMBER BELOW IS SAFE TO TWEAK LIVE. */
 const CAPE_MODES = ["sprites (original)", "spring + warp", "verlet cloth"];
 const CAPE_START_MODE = 1;
@@ -139,7 +145,7 @@ const CAPE_START_MODE = 1;
 const CAPE_SPRING_STIFFNESS = 140;   // pull toward the target swing angle (higher = snappier)
 const CAPE_SPRING_DAMPING = 50;       // friction (critical damping would be 2*sqrt(stiffness) = ~23; lower = more wobble)
 const CAPE_SPRING_RUN_ANGLE = 0;    // degrees the cloak swings at full run speed. SIGN DEPENDS ON YOUR ART: + raises the tail of a cape that streams up-and-back, - lowers it; flip it if it swings the wrong way
-const CAPE_SPRING_FALL_ANGLE = 18;   // extra degrees when falling fast (negative while rising)
+const CAPE_SPRING_FALL_ANGLE = 12;   // extra degrees when falling fast (negative while rising)
 const CAPE_SPRING_KICK = 260;        // deg/s impulse on jump / landing / dash (the overshoot)
 const CAPE_WARP_STRIPS = 50;         // vertical slices of the art (more = smoother ripple + fewer stair-steps on diagonal edges)
 const CAPE_WARP_AMP = [6, 24];       // ripple height in art px at the tip: [standing, full speed]
@@ -156,20 +162,20 @@ const CAPE_CLOTH = {
   flutter: 1400,      // px/s^2 turbulence at the tip while moving
   backBias: 2000,      // px/s^2 gentle push toward the back of the body, so the cape never flips over your front mid-air
   iterations: 6,      // constraint passes per step (more = less stretchy)
-  bend: 0.32,         // 0..1: resists sharp folds (higher = stiffer, stays straighter)
+  bend: 0.22,         // 0..1: resists sharp folds (higher = stiffer, stays straighter)
   step: 1 / 120,      // fixed physics step (s) - keeps the sim stable at any framerate
   maxSteps: 6,        // cap steps per frame so a lag spike can't spiral
-  w0: 18, w1: 50,     // ribbon width at the collar / at the hem (px)
-  ripple: 0.1,       // 0..1 width wobble along the hem
-  rootOffset: { x: -10, y: -115 }, // WHERE THE CAPE HANGS FROM, RELATIVE TO CLOAK_POSE's x/y (art px, + = forward / down). The sprite cloak's pivot sits at the FRONT collar; this moves it back to the nape. TURN ON CLOAK_DEBUG_MARKERS TO SEE IT (cyan dot)
+  w0: 12, w1: 50,     // ribbon width at the collar / at the hem (px)
+  ripple: 0.2,       // 0..1 width wobble along the hem
+  rootOffset: { x: -110, y: -180 }, // WHERE THE CAPE HANGS FROM, RELATIVE TO CLOAK_POSE's x/y (art px, + = forward / down). The sprite cloak's pivot sits at the FRONT collar; this moves it back to the nape. TURN ON CLOAK_DEBUG_MARKERS TO SEE IT (cyan dot)
 };
-const CAPE_COLORS = ["#4d28d7", "#1e59f2", "#4843f9"]; // collar -> middle -> hem
-const CAPE_EDGE = "#4d28d7";
-const CAPE_EDGE_GLOW = "#4d28d7";
+const CAPE_COLORS = ["#0000ff", "#2b3be3", "#2e45fd"]; // collar -> middle -> hem
+const CAPE_EDGE = "#0000ff";
+const CAPE_EDGE_GLOW = "#0000ff";
 
 const SCALE = 0.5;
-const MOVE_SPEED = 550;
-const JUMP_FORCE = 900;
+const MOVE_SPEED = 650;
+const JUMP_FORCE = 1000;
 const GROUND_Y = 460;
 
 /* ---------- WALL SLIDE / WALL JUMP CONFIG ----------
@@ -193,8 +199,25 @@ const ATTACK_KICK_HOLD_TIME = 0.25; // kick pose hold before returning to idle
 const HAND_HEIGHT_RATIO = 1 / 2; // hand sits roughly 1/3 down the frame
 const SPELL_FORWARD_OFFSET = 40; // extra px in front of player beyond half width
 
+/* ---------- PLAYER ANIMATIONS ----------
+   WHICH SHEET + FRAME RANGE EACH ANIMATION PLAYS (NAMES MATCH currentAnim / playAnim()).
+     fps      - FRAMES PER SECOND
+     duration - ALTERNATIVE TO fps: SECONDS FOR THE WHOLE RANGE (attack / kick STRETCH
+                THEIR FRAMES OVER THE SAME HOLD TIME THAT LOCKS MOVEMENT)
+     loop     - REPEAT (OTHERWISE HOLDS THE LAST FRAME)
+     manual   - NO AUTOMATIC STEPPING; updateRun() PICKS THE FRAME */
+const PLAYER_ANIMS = {
+  idle:       { sheet: "idle",       from: 0, to: PLAYER_SHEETS.idle.frames - 1, fps: 4, loop: true },
+  run:        { sheet: "run",        from: RUN.from, to: RUN.to, manual: true },
+  jump:       { sheet: "jump",       from: 0, to: 0 },
+  fall:       { sheet: "jump",       from: 1, to: 1 },
+  wallSlide:  { sheet: "wall_slide", from: 0, to: 0 },
+  attack:     { sheet: "attack",     from: 0, to: PLAYER_SHEETS.attack.frames - 1, duration: ATTACK_HOLD_TIME },
+  attackKick: { sheet: "kick",       from: 0, to: PLAYER_SHEETS.kick.frames - 1, duration: ATTACK_KICK_HOLD_TIME },
+};
+
 /* ---------- KICK SWOOSH CONFIG ----------
-   swoosh.png IS 4 FRAMES, EACH 400x400 - SAME CELL SIZE AS player.png's
+   swoosh.png IS 4 FRAMES, EACH 400x400 - SAME CELL SIZE AS THE PLAYER SHEETS'
    FRAMES - SO IT'S DRAWN WITH THE EXACT SAME pos/anchor/scale AS THE PLAYER
    AND LANDS PERFECTLY OVER THE KICK POSE WITH NO OFFSET TUNING NEEDED. */
 const SWOOSH_SRC = "assets/images/swoosh.png";
@@ -234,7 +257,7 @@ const SQUASH_AIR_STRETCH_VEL = 1100; // |vel.y| (px/s) where that stretch maxes 
 const SQUASH_DASH = { x: 1.1, y: 0.9 };        // stretched long + low while dashing
 
 /* ---- HIT-STOP ---- */
-const HITSTOP_KICK = 0.07;           // seconds the whole game freezes when the kick lands
+const HITSTOP_KICK = 0.09;           // seconds the whole game freezes when the kick lands
 
 /* ---- DASH + AFTERIMAGES ----
    GHOSTS ARE FLAT-COLOR SILHOUETTES OF THE PLAYER'S CURRENT FRAME, SPAWNED
@@ -246,8 +269,8 @@ const DASH_TIME = 0.16;              // seconds a dash lasts (~240px)
 const DASH_COOLDOWN = 0.45;          // seconds before the next dash
 const GHOST_INTERVAL = 0.022;        // seconds between afterimages
 const GHOST_LIFE = 0.32;             // seconds an afterimage lives
-const GHOST_ALPHA = 0.6;             // starting opacity
-const GHOST_COLORS = ["#00ffff", "#667eea", "#dc4ce8", "#ff69b4"];
+const GHOST_ALPHA = 0.5;             // starting opacity
+const GHOST_COLORS = ["#00ffff", "#00ffff", "#830cde", "#e056fd"];
 const GHOST_Z = 9;                   // just behind player (10), in front of particles (8)
 
 /* ---- DISSOLVE SHADER ----
@@ -294,9 +317,9 @@ const TILE_LEFT_CAP = null;
 const TILE_RIGHT_CAP = null;
 const TILE_SEED = 1337;
 
-const GROUND_SRC = "assets/images/ground.png";    // 125x80px, repeated along ground
-const GROUND_TILE_W = 125;
-const GROUND_W = 12500;              // 100 repeats of 125px
+const GROUND_SRC = "assets/images/pillars.png";    // 125x80px, repeated along ground
+const GROUND_TILE_W = 160;
+const GROUND_W = 16000;              // 100 repeats of 160px
 const GROUND_H = 80;
 
 /* ---------- WALLS (FOR WALL JUMPING) ----------
@@ -323,7 +346,7 @@ const WALLS = [
 const PARTICLE_Z = 8;               // behind player (10) and spells (9), in front of level (1)
 const MAX_PARTICLES = 500;          // hard cap
 
-const TRAIL_COLORS = ["#672ff7", "#6543f9"];
+const TRAIL_COLORS = ["#0000ff", "#830cde"];
 const RUN_TRAIL_INTERVAL = 0.03;   // seconds between run motes (lower = denser)
 const AIR_TRAIL_INTERVAL = 0.025;   // seconds between airborne motes
 const AIR_TRAIL_DELAY = 0.05;       // airtime before air trail starts
@@ -371,7 +394,7 @@ const k = kaplay({
   stretch: true,
   global: false,
   canvas: document.getElementById("game"),
-  background: [12, 0, 31],
+  background: [3, 0, 19],
   crisp: true,
   debug: true,
   pixelDensity: window.devicePixelRatio,
@@ -379,9 +402,9 @@ const k = kaplay({
 
 console.log("backing px per logical unit:", k.canvas.width / k.width(),
             "| DPR:", window.devicePixelRatio);
-k.setGravity(2000);
+k.setGravity(1800);
 
-const MAX_FALL_SPEED = 1600; // PREVENTS TUNNELING THROUGH THIN PLATFORMS
+const MAX_FALL_SPEED = 1500; // PREVENTS TUNNELING THROUGH THIN PLATFORMS
 
 /* ---------- ONE-WAY PLATFORMS ----------
    SOLID ONLY WHEN LANDING FROM ABOVE. SIDES AND UNDERSIDE IGNORED, SO YOU
@@ -467,7 +490,7 @@ let visualLift = 0;  // px sprite is drawn above physics position
 let touchingWall = null;  // null, or { dir } where dir = +1 (wall right) or -1 (left)
 let wallJumpLock = 0;     // seconds remaining where wall-jump push overrides left/right input
 let wallJumpPushDir = 1;  // direction (away from wall) the lock pushes while active
-let wallSlideHOffset = 0; // signed px the sprite is nudged sideways while wall-sliding, to re-center WALL_SLIDE_FRAME's off-center art (see WALL_SLIDE_VISUAL_OFFSET_X above)
+let wallSlideHOffset = 0; // signed px the sprite is nudged sideways while wall-sliding, to re-center THE WALL SLIDE SHEET'S off-center art (see WALL_SLIDE_VISUAL_OFFSET_X above)
 
 // starter-pack effect state
 const squash = { x: 1, y: 1, vx: 0, vy: 0 }; // spring-driven scale multipliers (see updateSquash)
@@ -570,8 +593,8 @@ function mirrorAnchorPreset(preset, facingLeft) {
 function cloakLayer(which) { /* which: "cloakBack" or "cloakFront" - PICKS LOADED SPRITE AND, FOR DEBUG MARKER, A COLOR TO TELL THE TWO APART AT A GLANCE. */
   return {
     id: which,
-    draw() {  // idle, attackKick, and wallSlide ALL HAVE CAPE BAKED INTO player.png
-      if (currentAnim === "idle" || currentAnim === "attackKick" || currentAnim === "wallSlide") return;
+    draw() {  // SEE CAPE_BAKED_ANIMS: THOSE SHEETS EITHER HAVE THE CAPE DRAWN IN OR NONE YET
+      if (CAPE_BAKED_ANIMS.has(currentAnim)) return;
       if (capeMode === 2) return; // VERLET CLOTH DRAWS THE CAPE INSTEAD (drawCloth)
       const pose = CLOAK_POSE[currentAnim] ?? CLOAK_POSE.run;
       const facingLeft = this.flipX;
@@ -618,19 +641,76 @@ function cloakLayer(which) { /* which: "cloakBack" or "cloakFront" - PICKS LOADE
   };
 }
 
-async function loadPlayerSprite(src) {
-  await k.loadSprite("player", src, {
-    sliceX: SLICE_X,
-    sliceY: SLICE_Y,
-    anims: {
-      idle: { from: IDLE.from, to: IDLE.to, loop: true, speed: 4 },
-      jump: { from: JUMP_FRAME, to: JUMP_FRAME, loop: false },
-      fall: { from: FALL_FRAME, to: FALL_FRAME, loop: false },
-      attack: { from: ATTACK_FRAME, to: ATTACK_FRAME, loop: false },
-      attackKick: { from: KICK_FRAME, to: KICK_FRAME, loop: false },
-      wallSlide: { from: WALL_SLIDE_FRAME, to: WALL_SLIDE_FRAME, loop: false },
+/* ---------- PLAYER SPRITE ----------
+   EACH SHEET IN PLAYER_SHEETS IS ITS OWN KAPLAY SPRITE ("player_run", "player_kick", ...).
+   kaplay's sprite() COMP CAN'T SWAP SHEETS ON A LIVE OBJECT WITHOUT SCRAMBLING THE
+   squashBegin/liftBegin/cloak DRAW ORDER, SO THE PLAYER USES THE playerSprite() COMP
+   BELOW INSTEAD: IT KEEPS THE SAME .frame / .flipX / .play() SURFACE, BUT ALSO TRACKS
+   WHICH SHEET IS CURRENT AND DRAWS IT IN THE SAME SLOT. */
+const sheetSprite = (key) => `player_${key}`;
+const sheetScales = {}; // key -> SCALE-TO-FIT FACTOR (1 WHEN THE SHEET IS ALREADY PLAYER_FRAME TALL)
+const sheetScale = (key) => sheetScales[key] ?? 1;
+
+async function loadPlayerSprites() {
+  for (const [key, sheet] of Object.entries(PLAYER_SHEETS)) {
+    await k.loadSprite(sheetSprite(key), sheet.src, { sliceX: sheet.frames, sliceY: 1 });
+    const data = k.getSprite(sheetSprite(key))?.data;
+    if (!data) continue;
+    // EVERY SHEET IS DRAWN AT THE SAME ON-SCREEN SIZE AS A 400x400 CELL, SO AN OVERSIZED
+    // (OR UNDERSIZED) SHEET STILL LOOKS RIGHT UNTIL IT'S RESIZED
+    sheetScales[key] = PLAYER_FRAME / data.height;
+    if (data.width !== PLAYER_FRAME || data.height !== PLAYER_FRAME) {
+      console.warn(`[player sheets] ${key}: frames are ${data.width}x${data.height}, expected ${PLAYER_FRAME}x${PLAYER_FRAME} - scaled x${sheetScales[key].toFixed(2)} to fit. Resize ${sheet.src} when you can.`);
+    }
+  }
+}
+
+function playerSprite() {
+  return {
+    id: "playerSprite",
+    // FIXED AT THE EXPECTED CELL SIZE (NOT THE CURRENT SHEET'S): kaplay's area() POSITIONS THE
+    // HITBOX FROM THESE, SO THEY MUST NOT CHANGE FROM ONE ANIMATION TO THE NEXT. spawnSpell()
+    // READS THEM TOO.
+    width: PLAYER_FRAME,
+    height: PLAYER_FRAME,
+    sheet: "idle",      // KEY INTO PLAYER_SHEETS
+    frame: 0,           // FRAME WITHIN THAT SHEET
+    flipX: false,
+    anim: PLAYER_ANIMS.idle,
+    animT: 0,
+    play(name) { // START A PLAYER_ANIMS ENTRY: SWITCHES SHEET AND RESTARTS AT ITS FIRST FRAME
+      const def = PLAYER_ANIMS[name];
+      if (!def) return;
+      this.anim = def;
+      this.sheet = def.sheet;
+      this.frame = def.from;
+      this.animT = 0;
     },
-  });
+    update() {
+      const a = this.anim;
+      if (!a || a.manual || a.to === a.from) return;
+      const n = a.to - a.from + 1;
+      const fps = a.fps ?? n / a.duration;
+      this.animT += k.dt();
+      let i = Math.floor(this.animT * fps);
+      i = a.loop ? i % n : Math.min(i, n - 1);
+      this.frame = a.from + i;
+    },
+    draw() {
+      const name = sheetSprite(this.sheet);
+      k.drawSprite({
+        sprite: name,
+        frame: this.frame,
+        anchor: "bot",
+        scale: sheetScale(this.sheet),
+        flipX: this.flipX,
+        // DISSOLVE ONLY WHILE IT'S ACTUALLY RUNNING (AT dissolveAmount 0 THE SHADER IS A NO-OP ANYWAY)
+        ...(FX.dissolve && dissolveAmount > 0
+          ? { shader: "dissolve", uniform: dissolveUniform(name, this.frame) }
+          : {}),
+      });
+    },
+  };
 }
 
 async function loadCloakSprites() { // NO `anims` HERE - WE DRIVE FRAME INDEX OURSELVES (SEE cloakFrame / updateCloakAnim) SO BOTH LAYERS SHARE ONE TIMER.
@@ -781,14 +861,11 @@ function spawnPlayer(x = 100, y = GROUND_Y) {
     liftBegin(),
     hOffsetBegin(),
     cloakLayer("cloakBack"),
-    k.sprite("player", { anim: "idle" }),
+    playerSprite(), // BODY - DRAWS THE CURRENT SHEET'S FRAME (DISSOLVE SHADER IS APPLIED INSIDE IT)
     cloakLayer("cloakFront"),
     hOffsetEnd(),
     liftEnd(),
     squashEnd(),
-    // DISSOLVE SHADER ON THE BODY SPRITE. WITH dissolveAmount AT 0 IT RETURNS THE
-    // PLAIN SPRITE PIXEL, SO IT'S SAFE TO LEAVE ATTACHED THE WHOLE TIME.
-    k.shader("dissolve", () => dissolveUniform("player", player ? player.frame : 0)),
     k.pos(x, y),
     k.anchor("bot"),
     k.area({ shape: new k.Rect(k.vec2(-HB_W - HB_OFFSET_X, -HB_H - HB_OFFSET_Y), HB_W, HB_H) }),
@@ -807,7 +884,7 @@ function spawnPlayer(x = 100, y = GROUND_Y) {
 function startRun() {
   runIdx = 0;
   runTimer = 0;
-  player.stop(); // hand frame control over from kaplay's anim system
+  player.play("run"); // SWITCHES TO THE RUN SHEET; "run" IS manual, SO updateRun() OWNS THE FRAME FROM HERE
   player.frame = RUN_CYCLE[0].frame;
   visualLift = RUN_CYCLE[0].lift;
 }
@@ -982,7 +1059,7 @@ k.onUpdate(() => {
   if (wallSliding) {
     if (player.vel.y > WALL_SLIDE_SPEED) player.vel.y = WALL_SLIDE_SPEED;
     player.flipX = touchingWall.dir === 1; // FACE AWAY FROM THE WALL SO IT'S BEHIND YOU (dir 1 = wall is to the right, so flip to face left)
-    // WALL_SLIDE_FRAME'S ART IS OFF-CENTER (SEE WALL_SLIDE_VISUAL_OFFSET_X UP
+    // THE WALL SLIDE ART IS OFF-CENTER (SEE WALL_SLIDE_VISUAL_OFFSET_X UP
     // TOP), SO flipX ALONE LEAVES THE VISIBLE CHARACTER STRADDLING THE WALL.
     // NUDGE THE DRAWN SPRITE BACK ONTO THE CORRECT FACE OF IT: RAW/UNFLIPPED
     // ART (touching wall on its left) SHIFTS RIGHT TO RE-CENTER; MIRRORED
@@ -1335,6 +1412,7 @@ function emitGhosts(dt) {
       y: player.pos.y - visualLift * SCALE * squash.y,
       sx: squash.x,
       sy: squash.y,
+      sheet: player.sheet,
       frame: player.frame,
       flip: player.flipX,
       age: 0,
@@ -1355,11 +1433,11 @@ function drawGhosts() {
     const t = g.age / GHOST_LIFE; // 0 -> 1 OVER THE GHOST'S LIFE
     const shrink = 1 - 0.12 * t;  // SLIGHT SHRINK SO THE TRAIL TAPERS
     k.drawSprite({
-      sprite: "player",
+      sprite: sheetSprite(g.sheet),
       frame: g.frame,
       pos: k.vec2(g.x, g.y),
       anchor: "bot",
-      scale: k.vec2(SCALE * g.sx * shrink, SCALE * g.sy * shrink),
+      scale: k.vec2(SCALE * g.sx * shrink * sheetScale(g.sheet), SCALE * g.sy * shrink * sheetScale(g.sheet)),
       flipX: g.flip,
       shader: "silhouette",
       uniform: { u_color: g.color, u_alpha: GHOST_ALPHA * Math.pow(1 - t, 1.5) },
@@ -1819,7 +1897,7 @@ function stepCloth(dt) {
 
 function drawCloth() {
   if (capeMode !== 2 || !player || cloth.need || cloth.p.length < 3) return;
-  if (currentAnim === "idle" || currentAnim === "attackKick" || currentAnim === "wallSlide") return; // CAPE IS BAKED INTO THOSE FRAMES
+  if (CAPE_BAKED_ANIMS.has(currentAnim)) return; // THOSE SHEETS HAVE THEIR OWN (OR NO) CAPE
   const alpha = FX.dissolve ? 1 - dissolveAmount : 1; // FADE WITH THE BODY'S DISSOLVE
   if (alpha <= 0.02) return;
 
@@ -1888,7 +1966,7 @@ k.onUpdate(() => {
   debugLabel.text =
     `grounded: ${player.isGrounded()}\n` +
     `currentAnim: ${currentAnim}\n` +
-    `frame: ${player.frame}  lift: ${visualLift}  hOffset: ${wallSlideHOffset}\n` +
+    `sheet: ${player.sheet}  frame: ${player.frame}  lift: ${visualLift}  hOffset: ${wallSlideHOffset}\n` +
     `isAttacking: ${isAttacking}\n` +
     `touchingWall: ${touchingWall ? touchingWall.dir : "-"}  wallJumpLock: ${wallJumpLock.toFixed(2)}\n` +
     `vel.y: ${player.vel.y.toFixed(1)}\n` +
@@ -1898,7 +1976,7 @@ k.onUpdate(() => {
 });
 
 /* ---------- BOOT ---------- */
-await loadPlayerSprite(SPRITE_SRC);
+await loadPlayerSprites();
 await loadCloakSprites();
 await loadSpellSprite(SPELL_SRC);
 await loadSwooshSprite(SWOOSH_SRC);
@@ -1923,7 +2001,7 @@ lightOverlay.hidden = !lightingOn;
 k.camPos(player.pos.x, player.pos.y - CAM_Y_OFFSET);
 
 debugLabel = k.add([
-  k.text("", { size: 16 }),
+  k.text("", { size: 12 }),
   k.pos(20, 20),
   k.fixed(),
   k.z(1000),
