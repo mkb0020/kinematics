@@ -38,12 +38,25 @@ const PLAYER_FRAME = 400;
 const PLAYER_SHEETS = {
   run:        { src: "assets/images/run.png",        frames: 8 },
   idle:       { src: "assets/images/idle.png",       frames: 6 }, // 6-FRAME BREATHING LOOP (NO CAPE DRAWN - IT'S ADDED IN CODE, SEE IDLE_CAPE)
-  jump:       { src: "assets/images/jump.png",       frames: 2 }, // 0 = launch / rising, 1 = fall
+  jump:       { src: "assets/images/jump.png",       frames: 5 }, // SEE JUMP_FRAME: 0 START (TRANSITION INTO THE JUMP), 1 RISE, 2 FLIP (TUCKED BALL, CAPE SMEARED INTO THE ART), 3 FALL, 4 LAND. 0 / 1 / 3 / 4 HAVE NO CAPE DRAWN (VERLET CAPE ADDED IN CODE, SEE JUMP_CAPE)
   wall_slide: { src: "assets/images/wall_slide.png", frames: 1 },
   attack:     { src: "assets/images/attack.png",     frames: 1 }, // spell cast - ONE 400x400 FRAME, NO CAPE DRAWN (VERLET CAPE ADDED IN CODE, SEE ATTACK_CAPE)
   kick:       { src: "assets/images/kick.png",       frames: 6 }, // melee kick - cape baked in
 };
 const RUN = { from: 0, to: 7 };   // FRAMES INSIDE THE RUN SHEET
+
+/* ---------- JUMP SHEET FRAMES + TIMING ----------
+   WHAT EACH FRAME OF jump.png IS. EACH ONE IS ITS OWN ANIMATION (SEE PLAYER_ANIMS):
+     start - TRANSITION INTO THE JUMP: SHOWN FOR JUMP_START_TIME RIGHT AFTER LEAVING THE GROUND
+     rise  - LAUNCH / ASCEND: HELD FOR AS LONG AS THE PLAYER IS GOING UP
+     flip  - TUCKED BALL: THE DOUBLE JUMP (SEE DOUBLE_JUMP). ITS CAPE IS SMEARED INTO THE ART
+     fall  - DESCENT: HELD FOR AS LONG AS THE PLAYER IS GOING DOWN (FALL_VEL_THRESHOLD BELOW)
+     land  - TOUCHDOWN: SHOWN FOR JUMP_LAND_TIME AFTER A REAL FALL, THEN IDLE / RUN TAKES OVER */
+const JUMP_FRAME = { start: 0, rise: 1, flip: 2, fall: 3, land: 4 };
+const JUMP_START_TIME = 0.05;        // SECONDS THE START FRAME SHOWS (SUPER SHORT)
+const JUMP_LAND_TIME = 0.07;         // SECONDS THE LAND FRAME SHOWS WHEN YOU TOUCH DOWN STANDING STILL (SUPER SHORT)
+const JUMP_LAND_TIME_MOVING = 0.05;  // SAME, BUT WHEN YOU'RE HOLDING LEFT / RIGHT SO THE RUN PICKS UP QUICKER
+const JUMP_LAND_MIN_IMPACT = 250;    // LANDING vel.y (px/s) NEEDED TO SHOW THE LAND FRAME - STOPS TINY STEP-DOWNS FLASHING IT
 
 /* ---------- PER-SHEET SIZE / PLACEMENT TWEAKS ----------
    FOR WHEN A SHEET WAS DRAWN A BIT BIG/SMALL OR NOT QUITE SEATED IN ITS CELL, SO
@@ -55,10 +68,13 @@ const RUN = { from: 0, to: 7 };   // FRAMES INSIDE THE RUN SHEET
      snapFeet - MEASURE EACH FRAME'S LOWEST VISIBLE PIXEL WHEN THE SHEET LOADS AND DROP THAT
                 FRAME DOWN BY ITS GAP, SO THE FEET LAND FLUSH ON THE GROUND IN EVERY FRAME.
                 ONLY FOR GROUNDED SHEETS - AIRBORNE FRAMES (JUMP / FALL / RUN) SHOULD KEEP THEIR GAP
+     snapFrames - LIKE snapFeet BUT ONLY FOR THE LISTED FRAME NUMBERS (E.G. [4] = JUST THE JUMP SHEET'S LAND FRAME, THE
+                ONE GROUNDED FRAME IN A SHEET OF AIRBORNE ONES)
    TUNE scale LIVE: PRESS [ AND ] TO SHRINK / GROW THE CURRENT SHEET BY 0.02 (READOUT SHOWS
    THE VALUE, CONSOLE LOGS IT) THEN COPY THE NUMBER HERE. */
 const PLAYER_SHEET_TWEAKS = {
   idle: { scale: 1.0, offsetX: 0, offsetY: 0, snapFeet: true },
+  jump: { scale: 1.0, offsetX: 0, offsetY: 0, snapFeet: false, snapFrames: [JUMP_FRAME.land] }, // ONLY THE LAND FRAME IS ON THE GROUND (ITS FEET SIT ~14px ABOVE THE CELL BOTTOM)
 };
 const FOOT_ALPHA_MIN = 24; // A PIXEL COUNTS AS "FOOT" ONCE ITS ALPHA (0-255) PASSES THIS - IGNORES FAINT ANTI-ALIAS FRINGE
 
@@ -108,8 +124,9 @@ const RUN_CYCLE = RUN_POSE_ORDER.map((pose, i) => ({
 /* ---------- CLOAK OVERLAY CONFIG ----------
    attack AND attackKick HAVE THE CAPE BAKED INTO THEIR SHEETS, SO THE OVERLAY
    SKIPS THEM. idle AND wallSlide HAVE NO CAPE AT ALL YET (LEFT AS-IS FOR NOW) -
-   THEY SKIP THE OVERLAY TOO. SO IT ONLY COVERS run/jump/fall (SEE CAPE_BAKED_ANIMS).
-   (idle NOW HAS A CAPE TOO, BUT A VERLET ONE - SEE IDLE_CAPE - NOT THIS OVERLAY.)
+   THEY SKIP THE OVERLAY TOO. SO IT ONLY COVERS run (SEE CAPE_BAKED_ANIMS).
+   (idle NOW HAS A CAPE TOO, BUT A VERLET ONE - SEE IDLE_CAPE - NOT THIS OVERLAY. SAME FOR THE
+   JUMP SHEET'S FRAMES - SEE JUMP_CAPE - SO THE jump / fall ENTRIES IN CLOAK_POSE BELOW ARE NOW UNUSED.)
    TWO LAYERS - cloakBack (BEHIND BODY) AND cloakFront (IN FRONT OF
    BODY/ARM) - SANDWICH THE PLAYER SPRITE. BOTH PLAY THE SAME 4-FRAME
    "WIND" LOOP DRIVEN BY OUR OWN TIMER (NOT KAPLAY'S ANIM SYSTEM).
@@ -129,18 +146,20 @@ const CLOAK_SCALE = 0.95;             // uniform scale on both cloak layers
 
 const CLOAK_POSE = {
   run:    { x: 150, y: -35, rot: 0 },
-  jump:   { x: 120, y: -40, rot: -20 },
-  fall:   { x: 120, y: -40, rot: 30 },
+  jump:   { x: 120, y: -40, rot: -20 }, // UNUSED - THE JUMP FRAMES' CAPE IS THE VERLET ONE (SEE JUMP_CAPE)
+  fall:   { x: 120, y: -40, rot: 30 },  // UNUSED - SAME
   attack: { x: 100, y: -10, rot: 0 }, // UNUSED - THE ATTACK'S CAPE IS THE VERLET ONE (SEE ATTACK_CAPE)
 };
 
 // ANIMS THE SPRITE CLOAK OVERLAY (cloakBack / cloakFront) SKIPS: EITHER THE CAPE IS BAKED
 // INTO THE SHEET, OR NONE IS DRAWN. idle IS HERE ON PURPOSE: ITS CAPE IS THE VERLET ONE
-// (SEE IDLE_CAPE) IN EVERY CAPE MODE, NOT THE 4-FRAME WIND-LOOP ART.
-const CAPE_BAKED_ANIMS = new Set(["idle", "attack", "attackKick", "wallSlide"]);
+// (SEE IDLE_CAPE) IN EVERY CAPE MODE, NOT THE 4-FRAME WIND-LOOP ART. THE JUMP SHEET'S FRAMES ARE HERE
+// FOR THE SAME REASON (VERLET CAPE - SEE JUMP_CAPE - EXCEPT doubleJump, WHICH HAS ITS CAPE DRAWN IN).
+const CAPE_BAKED_ANIMS = new Set(["idle", "attack", "attackKick", "wallSlide", "jumpStart", "jump", "doubleJump", "fall", "land"]);
 // ANIMS THE VERLET CAPE DOESN'T DRAW OVER (idle AND attack AREN'T LISTED - THAT'S THE POINT OF
-// IDLE_CAPE / ATTACK_CAPE: THEY GET THE VERLET CAPE IN EVERY CAPE MODE)
-const CAPE_VERLET_SKIP_ANIMS = new Set(["attackKick", "wallSlide"]);
+// IDLE_CAPE / ATTACK_CAPE: THEY GET THE VERLET CAPE IN EVERY CAPE MODE). doubleJump IS THE FLIP FRAME,
+// WHOSE SMEARED CAPE IS PART OF THE ART.
+const CAPE_VERLET_SKIP_ANIMS = new Set(["attackKick", "wallSlide", "doubleJump"]);
 
 // DRAWS A DOT AT EACH CLOAK'S ATTACH POINT - HELPS WHILE DIALING IN
 // CLOAK_POSE x/y ABOVE.
@@ -258,6 +277,63 @@ const ATTACK_CAPE = {
   gustTime: 0.6,             // SECONDS THE GUST LASTS (ATTACK_HOLD_TIME IS 0.35, SO IT SETTLES A LITTLE AFTER THE POSE ENDS)
 };
 
+/* ---- JUMP CAPE: VERLET CAPE ON THE JUMP SHEET'S FRAMES ----
+   jump.png FRAMES 0 / 1 / 3 / 4 (start / rise / fall / land) HAVE NO CAPE DRAWN, SO THE SAME VERLET CHAIN IS HUNG
+   FROM THE NAPE WHILE THEY'RE UP, IN EVERY CAPE MODE (LIKE IDLE_CAPE / ATTACK_CAPE). THE FLIP (FRAME 2) HAS ITS CAPE
+   SMEARED INTO THE ART, SO IT GETS NONE. EVERY NUMBER IS SAFE TO TWEAK LIVE.
+   roots - ATTACH POINT PER POSE, IN JUMP ART PX (0,0 = FEET CENTER OF THE CELL, -y = UP, +x = FORWARD). MEASURED BY EYE
+           OFF THE ART - NUDGE THEM IF THE CAPE LOOKS LIKE IT'S HANGING FROM THE WRONG SPOT. SCALES WITH PLAYER_SHEET_TWEAKS.jump.
+   TO PLACE: SET CLOAK_DEBUG_MARKERS TO true - THE CYAN DOT IS THE ATTACH POINT. */
+const JUMP_CAPE = {
+  roots: {
+    jumpStart: { x: 14, y: -205 },
+    jump:      { x: 8,  y: -215 },
+    fall:      { x: 20, y: -244 },
+    land:      { x: 26, y: -238 },
+  },
+  blendRate: 16,   // HOW FAST THE ATTACH POINT EASES IN FROM / OUT TO THE OTHER POSES (PER SECOND)
+  rootEase: 30,    // HOW FAST IT SLIDES BETWEEN THE JUMP POSES (PER SECOND), SO THE CHAIN ISN'T YANKED AT EVERY FRAME SWAP
+};
+
+/* ---------- DOUBLE JUMP ----------
+   ONE EXTRA JUMP PER AIRTIME (REFILLED ON LANDING OR WALL CONTACT, SAME AS THE AIR DASH). IT PLAYS JUMP FRAME 2
+   (THE TUCKED BALL) AND SPINS THAT ONE FRAME: THE ROTATION EASES OUT, AND `turns` IS A WHOLE NUMBER SO IT ENDS UPRIGHT
+   AND HANDS BACK TO THE RISE / FALL FRAME WITHOUT A POP.
+   WHILE IT SPINS, TWO THINGS SPIRAL OUT OF THE CHARACTER (THE EMISSION ANGLE RIDES THE SPIN, SO THEY TRACE SPIRAL ARMS):
+     ghosts - AFTERIMAGES OF THE BALL, ALTERNATING FLAT NEON SILHOUETTES (LIKE THE DASH TRAIL) AND DISSOLVING COPIES
+              (SAME NOISE SHADER AS THE SPAWN DISSOLVE) THAT DRIFT OUTWARD, KEEP SPINNING, BLOOM AND BURN AWAY
+     motes  - THE SAME GLOWING MOTES AS THE RUN / AIR TRAIL, SHOT OUT IN `arms` SPIRAL ARMS, PLUS A SWIRLING RING AT LAUNCH
+   EVERY NUMBER IS SAFE TO TWEAK LIVE. enabled: false TURNS THE WHOLE THING OFF (THE EXTRA JUMP TOO). */
+const DOUBLE_JUMP = {
+  enabled: true,
+  force: 900,            // UPWARD KICK (JUMP_FORCE IS 1000)
+  spinTime: 0.45,        // SECONDS THE FLIP SPINS BEFORE HANDING BACK TO RISE / FALL
+  turns: 2,              // WHOLE ROTATIONS OVER spinTime (KEEP IT A WHOLE NUMBER SO IT ENDS UPRIGHT)
+  pivotY: 207,           // ART PX ABOVE THE FEET THAT THE BALL SPINS AROUND (THE BALL'S CENTER IN FRAME 2)
+  squash: { x: 0.9, y: 1.12 }, // LAUNCH POP (MILDER THAN SQUASH_JUMP SO THE BALL STAYS ROUNDISH). NO SPEED STRETCH WHILE IT SPINS EITHER
+  // ---- SPIRAL GHOSTS ----
+  ghostInterval: 0.02,   // SECONDS BETWEEN AFTERIMAGES
+  ghostLife: 0.5,        // SECONDS EACH ONE LIVES
+  ghostAlpha: 0.6,       // STARTING OPACITY
+  ghostSpeed: 230,       // PX/S OUTWARD (ALONG THE BALL'S CURRENT SPIN ANGLE)
+  ghostDrag: 2.2,        // PER-SECOND SLOWDOWN OF THAT DRIFT
+  ghostInherit: 0.5,     // FRACTION OF THE PLAYER'S vel.y THE GHOSTS START WITH, SO THE SPIRAL STAYS CLOSE TO YOU INSTEAD OF TRAILING STRAIGHT DOWN
+  ghostSpin: 0.6,        // FRACTION OF THE BALL'S SPIN SPEED THE GHOSTS KEEP (0 = FROZEN AT THE ANGLE THEY WERE LEFT AT)
+  ghostGrow: 0.2,        // EXTRA SIZE THEY BLOOM TO BY THE END OF THEIR LIFE
+  ghostCell: 26,         // NOISE BLOB SIZE FOR THE DISSOLVING COPIES, IN SPRITE PX (SPAWN DISSOLVE IS 22)
+  // ---- SPIRAL MOTES ----
+  arms: 3,               // SPIRAL ARMS OF MOTES
+  moteInterval: 0.016,   // SECONDS BETWEEN MOTE EMISSIONS (EACH EMITS ONE MOTE PER ARM)
+  moteSpeed: [170, 340], // PX/S OUTWARD (MIN, MAX)
+  moteLife: [0.35, 0.6], // SECONDS (MIN, MAX)
+  moteSize: [3, 6],      // STARTING RADIUS IN PX (MIN, MAX)
+  moteDrag: 2.2,
+  swirl: 0.55,           // 0..1: HOW MUCH OF A MOTE'S SPEED IS SIDEWAYS (IN THE SPIN'S DIRECTION) - MORE = TIGHTER CURLS
+  startRadius: 26,       // PX FROM THE BALL'S CENTER THAT MOTES START
+  burst: 22,             // MOTES IN THE SWIRLING RING AT LAUNCH
+  moteColors: ["#00ffff", "#dc4ce8", "#A55AFF", "#c4b5fd", "#ff69b4"],
+};
+
 const SCALE = 0.5;
 const MOVE_SPEED = 650;
 const JUMP_FORCE = 1000;
@@ -300,8 +376,11 @@ const IDLE_FPS = 6;// 6 FRAMES AT 6 FPS = ONE BREATH PER SECOND. LOWER = SLOWER,
 const PLAYER_ANIMS = {
   idle:       { sheet: "idle",       from: 0, to: PLAYER_SHEETS.idle.frames - 1, fps: IDLE_FPS, loop: true },
   run:        { sheet: "run",        from: RUN.from, to: RUN.to, manual: true },
-  jump:       { sheet: "jump",       from: 0, to: 0 },
-  fall:       { sheet: "jump",       from: 1, to: 1 },
+  jumpStart:  { sheet: "jump",       from: JUMP_FRAME.start, to: JUMP_FRAME.start }, // SHOWN FOR JUMP_START_TIME AFTER TAKING OFF
+  jump:       { sheet: "jump",       from: JUMP_FRAME.rise,  to: JUMP_FRAME.rise },  // RISING - HELD UNTIL vel.y TURNS DOWNWARD
+  doubleJump: { sheet: "jump",       from: JUMP_FRAME.flip,  to: JUMP_FRAME.flip },  // THE SPINNING BALL (SEE DOUBLE_JUMP)
+  fall:       { sheet: "jump",       from: JUMP_FRAME.fall,  to: JUMP_FRAME.fall },  // FALLING - HELD UNTIL LANDING
+  land:       { sheet: "jump",       from: JUMP_FRAME.land,  to: JUMP_FRAME.land },  // SHOWN FOR JUMP_LAND_TIME AFTER TOUCHING DOWN
   wallSlide:  { sheet: "wall_slide", from: 0, to: 0 },
   attack:     { sheet: "attack",     from: 0, to: PLAYER_SHEETS.attack.frames - 1, duration: ATTACK_HOLD_TIME },
   attackKick: { sheet: "kick",       from: 0, to: PLAYER_SHEETS.kick.frames - 1, duration: ATTACK_KICK_HOLD_TIME, holds: KICK_FRAME_HOLDS },
@@ -626,6 +705,14 @@ let dashTimer = 0;          // seconds of dash remaining (0 = not dashing)
 let dashCooldown = 0;       // seconds until another dash is allowed
 let dashDir = 1;            // +1 right / -1 left, locked in when the dash starts
 let airDashReady = true;    // one dash per airtime; refilled on landing / wall contact
+let airJumpReady = true;    // one double jump per airtime; refilled on landing / wall contact (SEE DOUBLE_JUMP)
+let jumpStartTimer = 0;     // seconds the jump sheet's START frame is still showing after takeoff (SEE JUMP_START_TIME)
+let landTimer = 0;          // seconds the LAND frame is still showing after touching down (SEE JUMP_LAND_TIME)
+let wasAirborne = false;    // LAST FRAME'S !grounded, SO THE MAIN LOOP CAN SPOT THE MOMENT OF TOUCHDOWN
+let airPeakFall = 0;        // FASTEST FREE-FALL vel.y THIS AIRTIME = HOW HARD THE LANDING IS (JUMP_LAND_MIN_IMPACT)
+// DOUBLE JUMP FLIP STATE: t = SECONDS OF SPIN LEFT (0 = NOT FLIPPING), angle = DEGREES SPUN SO FAR (UNSIGNED), dir = SPIN DIRECTION
+// LOCKED AT TAKEOFF, angVel = DEG/S, THE REST ARE EMISSION ACCUMULATORS
+const doubleJump = { t: 0, angle: 0, angVel: 0, dir: 1, ghostAcc: 0, moteAcc: 0, ghostN: 0 };
 let ghostAcc = 0;           // accumulator for afterimage spawning
 let ghostColorIdx = 0;      // which GHOST_COLORS entry the next ghost uses
 const ghosts = [];          // live afterimages (plain objects, drawn by one layer)
@@ -790,7 +877,8 @@ function sheetTweak(key) {
 function sheetPlace(key, frame, flip) {
   const tw = sheetTweak(key);
   const s = sheetScale(key) * tw.scale;
-  const gap = tw.snapFeet ? (footGaps[key]?.[frame] ?? 0) : 0; // GAP IS IN SHEET PX, SO IT SCALES WITH THE ART
+  const snap = tw.snapFeet || tw.snapFrames?.includes(frame); // WHOLE SHEET, OR JUST THE LISTED FRAMES
+  const gap = snap ? (footGaps[key]?.[frame] ?? 0) : 0; // GAP IS IN SHEET PX, SO IT SCALES WITH THE ART
   return { s, ox: (flip ? -1 : 1) * tw.offsetX, oy: gap * s + tw.offsetY };
 }
 
@@ -834,7 +922,7 @@ function measureFootGaps(key, sheet) {
 async function loadPlayerSprites() {
   for (const [key, sheet] of Object.entries(PLAYER_SHEETS)) {
     await k.loadSprite(sheetSprite(key), sheet.src, { sliceX: sheet.frames, sliceY: 1 });
-    if (sheetTweak(key).snapFeet) await measureFootGaps(key, sheet);
+    if (sheetTweak(key).snapFeet || sheetTweak(key).snapFrames?.length) await measureFootGaps(key, sheet);
     const data = k.getSprite(sheetSprite(key))?.data;
     if (!data) continue;
     // EVERY SHEET IS DRAWN AT THE SAME ON-SCREEN SIZE AS A 400x400 CELL, SO AN OVERSIZED
@@ -857,6 +945,7 @@ function playerSprite() {
     sheet: "idle",      // KEY INTO PLAYER_SHEETS
     frame: 0,           // FRAME WITHIN THAT SHEET
     flipX: false,
+    spin: 0,            // DEGREES THE BODY IS ROTATED ABOUT THE BALL'S CENTER (SIGNED, + = CLOCKWISE). ONLY THE DOUBLE JUMP'S FLIP SETS IT - SEE updateDoubleJump()
     anim: PLAYER_ANIMS.idle,
     animT: 0,
     play(name) { // START A PLAYER_ANIMS ENTRY: SWITCHES SHEET AND RESTARTS AT ITS FIRST FRAME
@@ -888,6 +977,13 @@ function playerSprite() {
     draw() {
       const name = sheetSprite(this.sheet);
       const pl = sheetPlace(this.sheet, this.frame, this.flipX); // SIZE TWEAK + FOOT SNAP (SEE PLAYER_SHEET_TWEAKS)
+      if (this.spin) { // ROTATE ABOUT THE BALL'S CENTER (IN THIS OBJECT'S LOCAL SPACE: x FROM THE FEET, y UP = NEGATIVE)
+        const cy = pl.oy - DOUBLE_JUMP.pivotY * pl.s;
+        k.pushTransform();
+        k.pushTranslate(pl.ox, cy);
+        k.pushRotate(this.spin);
+        k.pushTranslate(-pl.ox, -cy);
+      }
       k.drawSprite({
         sprite: name,
         frame: this.frame,
@@ -900,6 +996,7 @@ function playerSprite() {
           ? { shader: "dissolve", uniform: dissolveUniform(name, this.frame) }
           : {}),
       });
+      if (this.spin) k.popTransform();
     },
   };
 }
@@ -1222,7 +1319,10 @@ k.onCollideEnd("player", "wall", () => {
 k.onUpdate(() => {
   if (!player) return;
 
-  if (isAttacking) return; // HOLD ATTACK POSE; MOVEMENT/ANIM RESUMES ONCE IT ENDS
+  if (isAttacking) { // HOLD ATTACK POSE; MOVEMENT/ANIM RESUMES ONCE IT ENDS
+    wasAirborne = false; airPeakFall = 0; jumpStartTimer = 0; landTimer = 0; // A LANDING DURING AN ATTACK SHOULDN'T PLAY THE JUMP FRAMES ONCE IT ENDS
+    return;
+  }
 
   let moving = false;
 
@@ -1255,7 +1355,10 @@ k.onUpdate(() => {
   if (player.vel.y > MAX_FALL_SPEED) player.vel.y = MAX_FALL_SPEED;
 
   const grounded = player.isGrounded();
-  if (grounded || touchingWall) airDashReady = true; // REFILL THE ONE-PER-AIRTIME DASH
+  if (grounded || touchingWall) { // REFILL THE ONE-PER-AIRTIME DASH + DOUBLE JUMP
+    airDashReady = true;
+    airJumpReady = true;
+  }
 
   // WALL-SLIDE ONLY ENGAGES AIRBORNE, MID-LOCK-FREE, TOUCHING A WALL,
   // AND HOLDING THE DIRECTION KEY PRESSING INTO IT (CLASSIC CLING - LET
@@ -1270,6 +1373,17 @@ k.onUpdate(() => {
     wallSliding = pressingIntoWall;
   }
 
+  // TOUCHDOWN: A REAL FALL (NOT A TINY STEP-DOWN, NOT A SLOW WALL SLIDE) SHOWS THE LAND FRAME BRIEFLY (SEE JUMP_LAND_TIME)
+  if (grounded) {
+    if (wasAirborne && airPeakFall >= JUMP_LAND_MIN_IMPACT) landTimer = moving ? JUMP_LAND_TIME_MOVING : JUMP_LAND_TIME;
+    airPeakFall = 0;
+  } else if (wallSliding) {
+    airPeakFall = 0;
+  } else {
+    airPeakFall = Math.max(airPeakFall, player.vel.y);
+  }
+  wasAirborne = !grounded;
+
   if (wallSliding) {
     if (player.vel.y > WALL_SLIDE_SPEED) player.vel.y = WALL_SLIDE_SPEED;
     player.flipX = touchingWall.dir === 1; // FACE AWAY FROM THE WALL SO IT'S BEHIND YOU (dir 1 = wall is to the right, so flip to face left)
@@ -1282,7 +1396,16 @@ k.onUpdate(() => {
     playAnim("wallSlide");
   } else if (!grounded) {
     wallSlideHOffset = 0;
-    playAnim(player.vel.y > FALL_VEL_THRESHOLD ? "fall" : "jump");
+    landTimer = 0;
+    // DOUBLE JUMP FLIP > FALLING > START FRAME (BRIEF, RIGHT AFTER TAKEOFF) > RISING
+    if (doubleJump.t > 0) playAnim("doubleJump");
+    else if (player.vel.y > FALL_VEL_THRESHOLD) playAnim("fall");
+    else playAnim(jumpStartTimer > 0 ? "jumpStart" : "jump");
+    if (jumpStartTimer > 0) jumpStartTimer -= k.dt(); // AFTER PICKING THE FRAME, SO EVEN A LONG FRAME (LAG SPIKE) STILL SHOWS IT ONCE
+  } else if (landTimer > 0) {
+    wallSlideHOffset = 0;
+    landTimer -= k.dt();
+    playAnim("land");
   } else if (moving) {
     wallSlideHOffset = 0;
     playAnim("run");
@@ -1307,6 +1430,8 @@ k.onKeyPress(["up", "w", "space"], () => {
   if (!player || isAttacking) return;
   if (player.isGrounded()) {
     player.jump(JUMP_FORCE);
+    jumpStartTimer = JUMP_START_TIME; // BRIEFLY SHOW THE "TRANSITION INTO THE JUMP" FRAME, THEN THE RISE FRAME TAKES OVER
+    landTimer = 0;
     kickSquash(SQUASH_JUMP.x, SQUASH_JUMP.y);
     kickCape(-1);
   } else if (touchingWall) {
@@ -1317,9 +1442,12 @@ k.onKeyPress(["up", "w", "space"], () => {
     wallJumpLock = WALL_JUMP_LOCK_TIME;
     touchingWall = null; // RELEASE CLING SO SLIDE LOGIC DOESN'T INSTANTLY RECLAIM IT
     player.flipX = wallJumpPushDir === -1;
-    playAnim("jump");
+    jumpStartTimer = JUMP_START_TIME;
+    playAnim("jumpStart");
     kickSquash(SQUASH_JUMP.x, SQUASH_JUMP.y);
     kickCape(-1);
+  } else if (DOUBLE_JUMP.enabled && airJumpReady) {
+    startDoubleJump();
   }
 });
 
@@ -1379,6 +1507,7 @@ k.onKeyPress("l", () => {
                  puff.png SPRITE INSTEAD */
 const particles = [];
 const TRAIL_RGB = TRAIL_COLORS.map((c) => k.rgb(c));
+const DJ_MOTE_RGB = DOUBLE_JUMP.moteColors.map((c) => k.rgb(c));
 const rnd = (a, b) => a + Math.random() * (b - a);
 
 let pWasGrounded = true;
@@ -1402,16 +1531,17 @@ function addParticle(p) {
   particles.push(p);
 }
 
-function spawnTrail(x, y, vx, vy) {
+// o IS OPTIONAL: { color, life, size, drag } OVERRIDE THE RUN / AIR TRAIL DEFAULTS (THE DOUBLE JUMP'S SPIRAL MOTES USE THIS)
+function spawnTrail(x, y, vx, vy, o = {}) {
   addParticle({
     kind: "trail",
     x, y, vx, vy,
-    drag: 2.5,
+    drag: o.drag ?? 2.5,
     gravity: 0,
     age: 0,
-    life: rnd(TRAIL_LIFE[0], TRAIL_LIFE[1]),
-    r0: rnd(TRAIL_SIZE[0], TRAIL_SIZE[1]),
-    color: TRAIL_RGB[Math.floor(Math.random() * TRAIL_RGB.length)],
+    life: o.life ?? rnd(TRAIL_LIFE[0], TRAIL_LIFE[1]),
+    r0: o.size ?? rnd(TRAIL_SIZE[0], TRAIL_SIZE[1]),
+    color: o.color ?? TRAIL_RGB[Math.floor(Math.random() * TRAIL_RGB.length)],
   });
 }
 
@@ -1528,6 +1658,7 @@ function drawParticles() {
 k.onUpdate(() => {
   const dt = k.dt();
   updateCloakAnim(dt);
+  updateDoubleJump(dt); // BEFORE THE EMITTERS / GHOSTS BELOW SO THIS FRAME'S SPIRAL SHOWS UP THIS FRAME
   updateParticleEmitters(dt);
   stepParticles(dt);
   updateSquash(dt);
@@ -1583,7 +1714,7 @@ function updateSquash(dt) {
   if (dashTimer > 0) { // HOLD THE LONG-LOW DASH POSE FOR THE WHOLE DASH
     tx = SQUASH_DASH.x;
     ty = SQUASH_DASH.y;
-  } else if (!player.isGrounded() && currentAnim !== "wallSlide") { // STRETCH WITH VERTICAL SPEED
+  } else if (!player.isGrounded() && currentAnim !== "wallSlide" && currentAnim !== "doubleJump") { // STRETCH WITH VERTICAL SPEED (NOT WHILE THE BALL SPINS - IT WOULD SHEAR)
     const s = Math.min(1, Math.abs(player.vel.y) / SQUASH_AIR_STRETCH_VEL);
     ty = 1 + SQUASH_AIR_STRETCH * s;
     tx = 1 - SQUASH_AIR_STRETCH * s * 0.6; // ROUGHLY KEEPS THE AREA CONSTANT
@@ -1647,24 +1778,81 @@ function emitGhosts(dt) {
       sheet: player.sheet,
       frame: player.frame,
       flip: player.flipX,
+      ang: player.spin || 0, // A DASH MID-FLIP KEEPS THE BALL'S ROTATION IN ITS AFTERIMAGES (SEE drawSpiralGhost)
       age: 0,
       color: GHOST_RGB[ghostColorIdx++ % GHOST_RGB.length],
     });
   }
 }
 
+/* GHOSTS COME IN TWO KINDS. THE DASH'S ARE JUST A FROZEN SNAPSHOT (NO EXTRA FIELDS). THE DOUBLE JUMP'S SPIRAL GHOSTS ALSO CARRY:
+     life - THEIR OWN LIFETIME (DEFAULT GHOST_LIFE)         vx, vy, drag - OUTWARD DRIFT IN PX/S, SLOWED BY drag
+     ang, angVel - ROTATION (DEG) + SPIN SPEED (DEG/S)      pivot - ART PX ABOVE THE FEET THAT IT ROTATES AROUND
+     grow - EXTRA SIZE BLOOMED TO OVER ITS LIFE             mode - "dissolve" = BURNS AWAY, OTHERWISE A FLAT NEON SILHOUETTE
+     u - ITS OWN SHADER UNIFORM OBJECT, CREATED ONCE AT SPAWN AND MUTATED EACH DRAW SO THERE'S NO PER-FRAME ALLOCATION */
 function stepGhosts(dt) {
   for (let i = ghosts.length - 1; i >= 0; i--) {
-    ghosts[i].age += dt;
-    if (ghosts[i].age >= GHOST_LIFE) ghosts.splice(i, 1);
+    const g = ghosts[i];
+    g.age += dt;
+    if (g.age >= (g.life ?? GHOST_LIFE)) {
+      ghosts.splice(i, 1);
+      continue;
+    }
+    if (g.vx !== undefined) { // SPIRAL GHOST: DRIFT OUTWARD + KEEP SPINNING, BOTH EASING OFF
+      const d = Math.exp(-g.drag * dt); // FRAME-RATE INDEPENDENT, LIKE THE PARTICLES
+      g.vx *= d;
+      g.vy *= d;
+      g.x += g.vx * dt;
+      g.y += g.vy * dt;
+      g.ang += g.angVel * dt;
+      g.angVel *= d;
+    }
   }
+}
+
+// ONE GHOST DRAWN INSIDE ITS OWN TRANSFORM, SO IT CAN ROTATE ABOUT THE BALL'S CENTER. SAME PLACEMENT MATH AS THE
+// PLAYER'S OWN DRAW: translate to the feet -> squash/size -> rotate about the pivot -> sprite at (pl.ox, pl.oy).
+function drawSpiralGhost(g, t, pl) {
+  const fade = Math.pow(1 - t, 1.5);
+  const sc = SCALE * (g.grow ? 1 + g.grow * t : 1 - 0.12 * t);
+  k.pushTransform();
+  k.pushTranslate(g.x, g.y);
+  k.pushScale(sc * g.sx, sc * g.sy);
+  if (g.ang) {
+    const cy = pl.oy - (g.pivot ?? DOUBLE_JUMP.pivotY) * pl.s;
+    k.pushTranslate(pl.ox, cy);
+    k.pushRotate(g.ang);
+    k.pushTranslate(-pl.ox, -cy);
+  }
+  const base = {
+    sprite: sheetSprite(g.sheet),
+    frame: g.frame,
+    pos: k.vec2(pl.ox, pl.oy),
+    anchor: "bot",
+    scale: pl.s,
+    flipX: g.flip,
+  };
+  if (g.mode === "dissolve" && g.u) {
+    g.u.u_amount = Math.min(1, 0.1 + t * 0.95); // STARTS ALMOST WHOLE, ENDS FULLY EATEN, THE BURN EDGE GLOWING ALL THE WAY
+    k.drawSprite({ ...base, opacity: (g.alpha ?? GHOST_ALPHA) * (1 - 0.5 * t), shader: "dissolve", uniform: g.u });
+  } else if (g.u) {
+    g.u.u_alpha = (g.alpha ?? GHOST_ALPHA) * fade;
+    k.drawSprite({ ...base, shader: "silhouette", uniform: g.u });
+  } else { // A DASH GHOST CAUGHT MID-FLIP
+    k.drawSprite({ ...base, shader: "silhouette", uniform: { u_color: g.color, u_alpha: GHOST_ALPHA * fade } });
+  }
+  k.popTransform();
 }
 
 function drawGhosts() {
   for (const g of ghosts) {
-    const t = g.age / GHOST_LIFE; // 0 -> 1 OVER THE GHOST'S LIFE
+    const t = g.age / (g.life ?? GHOST_LIFE); // 0 -> 1 OVER THE GHOST'S LIFE
     const shrink = 1 - 0.12 * t;  // SLIGHT SHRINK SO THE TRAIL TAPERS
     const pl = sheetPlace(g.sheet, g.frame, g.flip);
+    if (g.ang || g.u) { // ROTATED OR SPIRAL (DOUBLE JUMP FLIP): NEEDS THE TRANSFORM PATH
+      drawSpiralGhost(g, t, pl);
+      continue;
+    }
     k.drawSprite({
       sprite: sheetSprite(g.sheet),
       frame: g.frame,
@@ -1675,6 +1863,167 @@ function drawGhosts() {
       shader: "silhouette",
       uniform: { u_color: g.color, u_alpha: GHOST_ALPHA * Math.pow(1 - t, 1.5) },
     });
+  }
+}
+
+/* ----- 3b. DOUBLE JUMP -----
+   FLIP = JUMP FRAME 2, SPUN. SEE DOUBLE_JUMP UP TOP FOR WHAT EVERY NUMBER DOES. THE SPIN, ITS CANCEL CONDITIONS AND ITS
+   EMISSIONS RUN IN THE ALWAYS-ON LOOP (updateDoubleJump), NOT THE MAIN ONE, SO THEY KEEP TIME DURING THE isAttacking EARLY-RETURN.
+   FOR A GODOT PORT: THE ALGORITHM IS JUST "ANGLE = 360 * TURNS * EASE(t / T)" PLUS TWO EMITTERS WHOSE DIRECTION IS THAT ANGLE -
+   A CPUParticles2D (OR A LITTLE SCRIPT SPAWNING SPRITES) ROTATED BY THE SAME VALUE. */
+function startDoubleJump() {
+  const D = DOUBLE_JUMP;
+  const dj = doubleJump;
+  airJumpReady = false;
+  dashTimer = 0;                 // THE JUMP WINS OVER AN AIR DASH IN PROGRESS (AN AIR DASH ZEROES vel.y EVERY FRAME, WHICH WOULD EAT THE KICK)
+  player.vel.y = -D.force;
+  jumpStartTimer = 0;
+  landTimer = 0;
+  dj.t = D.spinTime;
+  dj.angle = 0;
+  dj.angVel = 0;
+  dj.dir = player.flipX ? -1 : 1; // SPINS FORWARD (A SOMERSAULT IN THE DIRECTION YOU FACE); LOCKED SO TURNING MID-AIR DOESN'T REVERSE IT
+  dj.ghostAcc = 0;
+  dj.moteAcc = 0;
+  playAnim("doubleJump");
+  kickSquash(D.squash.x, D.squash.y);
+  kickCape(-1);
+  spawnDoubleJumpBurst();
+}
+
+// WORLD POSITION OF THE SPINNING BALL'S CENTER (SAME PLACEMENT MATH AS THE PLAYER'S OWN DRAW)
+function doubleJumpCenter() {
+  const pl = sheetPlace("jump", JUMP_FRAME.flip, player.flipX);
+  return {
+    x: player.pos.x + pl.ox * SCALE * squash.x,
+    y: player.pos.y + (pl.oy - DOUBLE_JUMP.pivotY * pl.s) * SCALE * squash.y,
+  };
+}
+
+function updateDoubleJump(dt) {
+  const D = DOUBLE_JUMP;
+  const dj = doubleJump;
+  if (!player) {
+    dj.t = 0;
+    return;
+  }
+  if (dj.t <= 0 || currentAnim !== "doubleJump") { // FINISHED, OR CUT SHORT (LANDED / WALL SLIDE / ATTACK / RESPAWN)
+    dj.t = 0;
+    player.spin = 0;
+    return;
+  }
+  if (dt <= 0) return; // HIT-STOP FREEZE
+
+  dj.t = Math.max(0, dj.t - dt);
+  const u = 1 - dj.t / D.spinTime;
+  const prev = dj.angle;
+  dj.angle = 360 * D.turns * k.easings.easeOutQuad(u); // FAST OUT OF THE LAUNCH, EASING TO A STOP EXACTLY UPRIGHT
+  dj.angVel = (dj.angle - prev) / dt;
+  const ang = dj.angle * dj.dir; // SIGNED DEGREES, + = CLOCKWISE ON SCREEN
+  player.spin = ang;
+
+  const c = doubleJumpCenter();
+  dj.ghostAcc += dt;
+  while (dj.ghostAcc >= D.ghostInterval) {
+    dj.ghostAcc -= D.ghostInterval;
+    spawnSpiralGhost(c, ang);
+  }
+  dj.moteAcc += dt;
+  while (dj.moteAcc >= D.moteInterval) {
+    dj.moteAcc -= D.moteInterval;
+    spawnSpiralMotes(c, ang);
+  }
+}
+
+// ONE AFTERIMAGE OF THE BALL, SHOT OUT ALONG THE DIRECTION IT'S CURRENTLY SPUN TO. THE ANGLE KEEPS ADVANCING, SO SUCCESSIVE
+// GHOSTS FAN OUT INTO A SPIRAL. EVERY OTHER ONE IS A DISSOLVING COPY INSTEAD OF A FLAT SILHOUETTE.
+function spawnSpiralGhost(c, ang) {
+  const D = DOUBLE_JUMP;
+  const dj = doubleJump;
+  const th = (ang * Math.PI) / 180;
+  const dissolve = dj.ghostN++ % 2 === 1;
+  const color = GHOST_RGB[ghostColorIdx++ % GHOST_RGB.length];
+  const sheetName = sheetSprite("jump");
+  let u;
+  if (dissolve) { // THE SPAWN DISSOLVE'S UNIFORMS (FRAME RECT, NOISE SIZE, BURN COLORS), BUT OURS TO ANIMATE
+    u = dissolveUniform(sheetName, JUMP_FRAME.flip);
+    u.u_cell = D.ghostCell;
+  } else {
+    u = { u_color: color, u_alpha: D.ghostAlpha };
+  }
+  ghosts.push({
+    x: player.pos.x,
+    y: player.pos.y,
+    sx: squash.x,
+    sy: squash.y,
+    sheet: "jump",
+    frame: JUMP_FRAME.flip,
+    flip: player.flipX,
+    age: 0,
+    life: D.ghostLife,
+    color,
+    ang,
+    angVel: dj.angVel * dj.dir * D.ghostSpin,
+    pivot: D.pivotY,
+    vx: Math.cos(th) * D.ghostSpeed,
+    vy: Math.sin(th) * D.ghostSpeed + player.vel.y * D.ghostInherit,
+    drag: D.ghostDrag,
+    grow: D.ghostGrow,
+    alpha: D.ghostAlpha,
+    mode: dissolve ? "dissolve" : "tint",
+    u,
+  });
+}
+
+// MOTES SHOT OUT IN `arms` EVENLY SPACED SPIRAL ARMS. EACH GETS AN OUTWARD VELOCITY PLUS A SIDEWAYS ONE IN THE SPIN'S DIRECTION,
+// SO IT CURLS AS IT SLOWS DOWN; THE EMISSION ANGLE RIDES THE SPIN, WHICH IS WHAT DRAWS THE ARMS.
+function spawnSpiralMotes(c, ang) {
+  const D = DOUBLE_JUMP;
+  const dir = doubleJump.dir;
+  for (let a = 0; a < D.arms; a++) {
+    const th = ((ang + (360 / D.arms) * a) * Math.PI) / 180;
+    const rx = Math.cos(th);
+    const ry = Math.sin(th);
+    const sp = rnd(D.moteSpeed[0], D.moteSpeed[1]);
+    const side = sp * D.swirl * dir; // TANGENT TO THE RADIUS, ALONG THE SPIN
+    spawnTrail(
+      c.x + rx * D.startRadius,
+      c.y + ry * D.startRadius,
+      rx * sp - ry * side,
+      ry * sp + rx * side + player.vel.y * D.ghostInherit,
+      {
+        color: DJ_MOTE_RGB[Math.floor(Math.random() * DJ_MOTE_RGB.length)],
+        life: rnd(D.moteLife[0], D.moteLife[1]),
+        size: rnd(D.moteSize[0], D.moteSize[1]),
+        drag: D.moteDrag,
+      },
+    );
+  }
+}
+
+// A SWIRLING RING OF MOTES FROM THE BALL'S CENTER AT THE MOMENT OF LAUNCH
+function spawnDoubleJumpBurst() {
+  const D = DOUBLE_JUMP;
+  const dir = doubleJump.dir;
+  const c = doubleJumpCenter();
+  for (let i = 0; i < D.burst; i++) {
+    const th = (i / D.burst) * Math.PI * 2;
+    const rx = Math.cos(th);
+    const ry = Math.sin(th);
+    const sp = rnd(D.moteSpeed[0], D.moteSpeed[1] * 1.3);
+    const side = sp * D.swirl * dir;
+    spawnTrail(
+      c.x + rx * D.startRadius,
+      c.y + ry * D.startRadius,
+      rx * sp - ry * side,
+      ry * sp + rx * side,
+      {
+        color: DJ_MOTE_RGB[i % DJ_MOTE_RGB.length],
+        life: rnd(D.moteLife[0], D.moteLife[1]),
+        size: rnd(D.moteSize[0], D.moteSize[1]),
+        drag: D.moteDrag,
+      },
+    );
   }
 }
 
@@ -1729,6 +2078,14 @@ function resetEffectState() {
   dashTimer = 0;
   dashCooldown = 0;
   airDashReady = true;
+  airJumpReady = true;
+  jumpStartTimer = 0;
+  landTimer = 0;
+  wasAirborne = false;
+  airPeakFall = 0;
+  doubleJump.t = 0;
+  jumpBlend = 0;
+  jumpRoot.set = false;
   ghosts.length = 0;
   capeSpring.a = capeSpring.v = 0;
   capeHVel = 0;
@@ -2034,6 +2391,8 @@ let capePrevX = null;                // last frame's player x, for measuring tha
 let capeSpeed = 0;                   // |horizontal speed| / MOVE_SPEED (a dash pushes it past 1)
 let capeWavePhase = 0;               // mode 1: traveling-wave phase (accumulated, so speed changes never jump it)
 let capeDirSmooth = 1;               // facing eased to -1..1, so the cloth root slides across the back on a turn
+let jumpBlend = 0;                   // 0 = NOT IN ONE OF THE JUMP SHEET'S CAPED POSES, 1 = IN ONE (SEE JUMP_CAPE). EASED THE SAME WAY
+const jumpRoot = { x: 0, y: 0, set: false }; // THE JUMP POSES' ATTACH POINT (ART PX), EASED BETWEEN POSES SO THE CHAIN ISN'T YANKED AT EACH FRAME SWAP
 let attackBlend = 0;                 // 0 = NOT CASTING, 1 = CASTING (SEE ATTACK_CAPE). EASED THE SAME WAY AS idleBlend
 let idleBlend = 1;                   // 0 = RUN-STYLE CAPE PHYSICS / ROOT, 1 = IDLE-STYLE (SEE IDLE_CAPE). EASED, SO THE CHAIN NEVER SNAPS
 const CAPE_RGB = CAPE_COLORS.map((c) => k.rgb(c));
@@ -2059,6 +2418,27 @@ function updateCape(dt) {
   idleBlend += (idleTarget - idleBlend) * Math.min(1, dt * IDLE_CAPE.blendRate);
   const attackTarget = ATTACK_CAPE.enabled && currentAnim === "attack" ? 1 : 0;
   attackBlend += (attackTarget - attackBlend) * Math.min(1, dt * ATTACK_CAPE.blendRate);
+
+  // JUMP POSES: EASE TOWARD THIS POSE'S ATTACH POINT (SEE JUMP_CAPE). THE FIRST FRAME IN ONE JUST SNAPS jumpRoot THERE -
+  // jumpBlend IS STILL ~0 AT THAT POINT, SO clothRoot() EASES IN FROM THE PREVIOUS POSE'S ROOT RATHER THAN POPPING
+  const jr = JUMP_CAPE.roots[currentAnim];
+  jumpBlend += ((jr ? 1 : 0) - jumpBlend) * Math.min(1, dt * JUMP_CAPE.blendRate);
+  if (jr) {
+    const pl = sheetPlace("jump", player.frame, false); // SIZE TWEAK + FOOT SNAP (THE LAND FRAME DROPS TO THE GROUND)
+    const tx = jr.x * pl.s + pl.ox;
+    const ty = jr.y * pl.s + pl.oy;
+    if (!jumpRoot.set) {
+      jumpRoot.x = tx;
+      jumpRoot.y = ty;
+      jumpRoot.set = true;
+    } else {
+      const e = Math.min(1, dt * JUMP_CAPE.rootEase);
+      jumpRoot.x += (tx - jumpRoot.x) * e;
+      jumpRoot.y += (ty - jumpRoot.y) * e;
+    }
+  } else if (jumpBlend < 0.001) {
+    jumpRoot.set = false;
+  }
 
   // MODE 1 SPRING: THE TARGET SWING COMES FROM HOW FAST WE'RE MOVING (FORWARD = SWING BACK)
   // AND FALLING (FALLING = LIFT); THE SPRING THEN CHASES IT, OVERSHOOTING AND SETTLING.
@@ -2132,13 +2512,14 @@ function gustCape() {
   if (ATTACK_CAPE.enabled) cloth.gustT = ATTACK_CAPE.gustTime;
 }
 
-// THE CHAIN RUNS IN MODE 2, AND ALSO IN IDLE AND THE SPELL CAST IN ANY MODE (SEE IDLE_CAPE / ATTACK_CAPE).
-// OUTSIDE ALL OF THOSE IT SLEEPS, AND stepCloth() RE-HANGS IT FROM THE COLLAR WHEN IT WAKES SO IT NEVER
-// RESUMES FROM A STALE POSE.
+// THE CHAIN RUNS IN MODE 2, AND ALSO IN IDLE, THE SPELL CAST AND THE JUMP SHEET'S CAPED POSES IN ANY MODE (SEE IDLE_CAPE /
+// ATTACK_CAPE / JUMP_CAPE). OUTSIDE ALL OF THOSE IT SLEEPS, AND stepCloth() RE-HANGS IT FROM THE COLLAR WHEN IT WAKES SO IT
+// NEVER RESUMES FROM A STALE POSE.
 function clothActive() {
   return !!player && (capeMode === 2
     || (IDLE_CAPE.enabled && currentAnim === "idle")
-    || (ATTACK_CAPE.enabled && currentAnim === "attack"));
+    || (ATTACK_CAPE.enabled && currentAnim === "attack")
+    || !!JUMP_CAPE.roots[currentAnim]);
 }
 
 function clothRoot() { // WORLD POSITION OF THE COLLAR PIN (SAME ATTACH POINT AS THE SPRITE CLOAK)
@@ -2162,6 +2543,10 @@ function clothRoot() { // WORLD POSITION OF THE COLLAR PIN (SAME ATTACH POINT AS
     const ay = ATTACK_CAPE.root.y * pl.s + pl.oy;
     lx += (ax - lx) * attackBlend;
     ly += (ay - ly) * attackBlend;
+  }
+  if (jumpBlend > 0.001) { // JUMP SHEET POSES: HANG FROM THEIR NAPE (jumpRoot ALREADY HAS THE SIZE TWEAK + FOOT SNAP IN IT)
+    lx += (jumpRoot.x - lx) * jumpBlend;
+    ly += (jumpRoot.y - ly) * jumpBlend;
   }
   return {
     x: player.pos.x + lx * capeDirSmooth * sx,
@@ -2411,6 +2796,7 @@ k.onUpdate(() => {
     `touchingWall: ${touchingWall ? touchingWall.dir : "-"}  wallJumpLock: ${wallJumpLock.toFixed(2)}\n` +
     `vel.y: ${player.vel.y.toFixed(1)}\n` +
     `pos.y: ${player.pos.y.toFixed(1)}\n` +
+    `air jump: ${airJumpReady ? "ready" : "used"}  flip: ${doubleJump.t > 0 ? doubleJump.angle.toFixed(0) + "deg" : "-"}  jumpStart: ${Math.max(0, jumpStartTimer).toFixed(2)}  land: ${Math.max(0, landTimer).toFixed(2)}\n` +
     `squash: ${squash.x.toFixed(2)}, ${squash.y.toFixed(2)}  dash: ${dashTimer > 0 ? "ON" : dashCooldown > 0 ? "cooldown" : "ready"}  dissolve: ${dissolveAmount.toFixed(2)}  light: ${lightingOn ? "on" : "off"}\n` +
     `cape (V): ${CAPE_MODES[capeMode]}  spring: ${capeSpring.a.toFixed(1)}deg  ghost tail (G): ${CAPE_DISSOLVE.enabled ? "on" : "off"}`;
 });
