@@ -37,13 +37,30 @@ import kaplay from "https://cdn.jsdelivr.net/npm/kaplay@3001.0.19/dist/kaplay.mj
 const PLAYER_FRAME = 400;
 const PLAYER_SHEETS = {
   run:        { src: "assets/images/run.png",        frames: 8 },
-  idle:       { src: "assets/images/idle.png",       frames: 1 },
+  idle:       { src: "assets/images/idle.png",       frames: 6 }, // 6-FRAME BREATHING LOOP (NO CAPE DRAWN - IT'S ADDED IN CODE, SEE IDLE_CAPE)
   jump:       { src: "assets/images/jump.png",       frames: 2 }, // 0 = launch / rising, 1 = fall
   wall_slide: { src: "assets/images/wall_slide.png", frames: 1 },
-  attack:     { src: "assets/images/attack.png",     frames: 2 }, // spell cast - cape baked in
+  attack:     { src: "assets/images/attack.png",     frames: 1 }, // spell cast - ONE 400x400 FRAME, NO CAPE DRAWN (VERLET CAPE ADDED IN CODE, SEE ATTACK_CAPE)
   kick:       { src: "assets/images/kick.png",       frames: 6 }, // melee kick - cape baked in
 };
 const RUN = { from: 0, to: 7 };   // FRAMES INSIDE THE RUN SHEET
+
+/* ---------- PER-SHEET SIZE / PLACEMENT TWEAKS ----------
+   FOR WHEN A SHEET WAS DRAWN A BIT BIG/SMALL OR NOT QUITE SEATED IN ITS CELL, SO
+   YOU DON'T HAVE TO REDRAW IT. EVERYTHING IS VISUAL ONLY - HITBOX/PHYSICS NEVER MOVE.
+     scale    - SIZE MULTIPLIER FOR THAT SHEET (1 = AS DRAWN). SCALES AROUND THE FEET, SO
+                THE CHARACTER GROWS/SHRINKS WITHOUT SLIDING OFF THE GROUND
+     offsetX  - PX SHIFT FORWARD (+) / BACK (-) IN THE 400x400 CELL. MIRRORS WHEN FACING LEFT
+     offsetY  - PX SHIFT DOWN (+) / UP (-). MANUAL FOOT NUDGE ON TOP OF snapFeet
+     snapFeet - MEASURE EACH FRAME'S LOWEST VISIBLE PIXEL WHEN THE SHEET LOADS AND DROP THAT
+                FRAME DOWN BY ITS GAP, SO THE FEET LAND FLUSH ON THE GROUND IN EVERY FRAME.
+                ONLY FOR GROUNDED SHEETS - AIRBORNE FRAMES (JUMP / FALL / RUN) SHOULD KEEP THEIR GAP
+   TUNE scale LIVE: PRESS [ AND ] TO SHRINK / GROW THE CURRENT SHEET BY 0.02 (READOUT SHOWS
+   THE VALUE, CONSOLE LOGS IT) THEN COPY THE NUMBER HERE. */
+const PLAYER_SHEET_TWEAKS = {
+  idle: { scale: 1.0, offsetX: 0, offsetY: 0, snapFeet: true },
+};
+const FOOT_ALPHA_MIN = 24; // A PIXEL COUNTS AS "FOOT" ONCE ITS ALPHA (0-255) PASSES THIS - IGNORES FAINT ANTI-ALIAS FRINGE
 
 /* ---------- WALL SLIDE VISUAL OFFSET ----------
    UNLIKE THE OTHER FRAMES, THE WALL SLIDE FRAME'S ART ISN'T CENTERED IN ITS CELL -
@@ -70,7 +87,7 @@ const FALL_VEL_THRESHOLD = 30; // vel.y (px/s, down = +) above which rising -> f
      hold - FRAME DURATION MULTIPLIER (1.0 = normal, <1 = quicker, >1 = lingers)
      lift - PX THE SPRITE IS DRAWN ABOVE THE GROUND (VISUAL ONLY - HITBOX/PHYSICS NEVER MOVE)
    TUNE THESE LIVE: THEY'RE THE WHOLE FEEL OF THE RUN. */
-const RUN_BASE_FPS = 9; // same as the old run speed
+const RUN_BASE_FPS = 11; // same as the old run speed
 const POSES = {
   contact: { hold: 1.0, lift: 3 },
   passing: { hold: 0.7, lift: 0 }, // fastest, flush with the ground
@@ -92,6 +109,7 @@ const RUN_CYCLE = RUN_POSE_ORDER.map((pose, i) => ({
    attack AND attackKick HAVE THE CAPE BAKED INTO THEIR SHEETS, SO THE OVERLAY
    SKIPS THEM. idle AND wallSlide HAVE NO CAPE AT ALL YET (LEFT AS-IS FOR NOW) -
    THEY SKIP THE OVERLAY TOO. SO IT ONLY COVERS run/jump/fall (SEE CAPE_BAKED_ANIMS).
+   (idle NOW HAS A CAPE TOO, BUT A VERLET ONE - SEE IDLE_CAPE - NOT THIS OVERLAY.)
    TWO LAYERS - cloakBack (BEHIND BODY) AND cloakFront (IN FRONT OF
    BODY/ARM) - SANDWICH THE PLAYER SPRITE. BOTH PLAY THE SAME 4-FRAME
    "WIND" LOOP DRIVEN BY OUR OWN TIMER (NOT KAPLAY'S ANIM SYSTEM).
@@ -110,14 +128,19 @@ const CLOAK_ANCHOR = { x: 0.6, y: 0.7 }; // where on cloak art the attach point 
 const CLOAK_SCALE = 0.95;             // uniform scale on both cloak layers
 
 const CLOAK_POSE = {
-  run:    { x: 143, y: -35, rot: 0 },
-  jump:   { x: 220, y: -115, rot: -20 },
-  fall:   { x: 30, y: -60, rot: 30 },
-  attack: { x: 100, y: -10, rot: 0 }, // UNUSED WHILE attack.png HAS THE CAPE BAKED IN
+  run:    { x: 150, y: -35, rot: 0 },
+  jump:   { x: 120, y: -40, rot: -20 },
+  fall:   { x: 120, y: -40, rot: 30 },
+  attack: { x: 100, y: -10, rot: 0 }, // UNUSED - THE ATTACK'S CAPE IS THE VERLET ONE (SEE ATTACK_CAPE)
 };
 
-// ANIMS WHOSE SHEET HAS NO CAPE TO LAYER ONE ON (EITHER BAKED IN, OR NONE DRAWN YET)
+// ANIMS THE SPRITE CLOAK OVERLAY (cloakBack / cloakFront) SKIPS: EITHER THE CAPE IS BAKED
+// INTO THE SHEET, OR NONE IS DRAWN. idle IS HERE ON PURPOSE: ITS CAPE IS THE VERLET ONE
+// (SEE IDLE_CAPE) IN EVERY CAPE MODE, NOT THE 4-FRAME WIND-LOOP ART.
 const CAPE_BAKED_ANIMS = new Set(["idle", "attack", "attackKick", "wallSlide"]);
+// ANIMS THE VERLET CAPE DOESN'T DRAW OVER (idle AND attack AREN'T LISTED - THAT'S THE POINT OF
+// IDLE_CAPE / ATTACK_CAPE: THEY GET THE VERLET CAPE IN EVERY CAPE MODE)
+const CAPE_VERLET_SKIP_ANIMS = new Set(["attackKick", "wallSlide"]);
 
 // DRAWS A DOT AT EACH CLOAK'S ATTACH POINT - HELPS WHILE DIALING IN
 // CLOAK_POSE x/y ABOVE.
@@ -134,16 +157,16 @@ const CLOAK_DEBUG_MARKERS = false;
      2  verlet cloth   - NO ART: A CHAIN OF POINTS SIMULATED WITH VERLET INTEGRATION
                          (GRAVITY + AIR DRAG + DISTANCE CONSTRAINTS), DRAWN AS A TAPERED
                          NEON RIBBON BEHIND THE BODY. REPLACES THE CLOAK OVERLAY
-   THE CAPE BAKED INTO THE attack / kick SHEETS STAYS AS DRAWN IN EVERY MODE (idle /
-   wall slide HAVE NO CAPE YET) - A FULL REPLACEMENT NEEDS THOSE BODY FRAMES REDRAWN
-   WITHOUT THE CAPE.
+   THE CAPE BAKED INTO THE kick SHEET STAYS AS DRAWN IN EVERY MODE (wall slide HAS NO CAPE
+   YET) - A FULL REPLACEMENT NEEDS THOSE BODY FRAMES REDRAWN WITHOUT THE CAPE. idle AND
+   attack ALREADY HAVE CAPE-FREE ART, SO THEY ALWAYS GET THE VERLET CAPE (IDLE_CAPE / ATTACK_CAPE).
    EVERY NUMBER BELOW IS SAFE TO TWEAK LIVE. */
 const CAPE_MODES = ["sprites (original)", "spring + warp", "verlet cloth"];
-const CAPE_START_MODE = 1;
+const CAPE_START_MODE = 2; // DEFAULT = VERLET CLOTH (WITH THE GHOST-TAIL DISSOLVE, SEE CAPE_DISSOLVE). 0 / 1 = THE SPRITE CLOAK MODES
 
 /* ---- mode 1: SPRING + WAVE WARP ---- */
-const CAPE_SPRING_STIFFNESS = 140;   // pull toward the target swing angle (higher = snappier)
-const CAPE_SPRING_DAMPING = 50;       // friction (critical damping would be 2*sqrt(stiffness) = ~23; lower = more wobble)
+const CAPE_SPRING_STIFFNESS = 100;   // pull toward the target swing angle (higher = snappier)
+const CAPE_SPRING_DAMPING = 80;       // friction (critical damping would be 2*sqrt(stiffness) = ~23; lower = more wobble)
 const CAPE_SPRING_RUN_ANGLE = 0;    // degrees the cloak swings at full run speed. SIGN DEPENDS ON YOUR ART: + raises the tail of a cape that streams up-and-back, - lowers it; flip it if it swings the wrong way
 const CAPE_SPRING_FALL_ANGLE = 12;   // extra degrees when falling fast (negative while rising)
 const CAPE_SPRING_KICK = 260;        // deg/s impulse on jump / landing / dash (the overshoot)
@@ -156,22 +179,84 @@ const CAPE_WARP_PHASE = 5.0;         // radians of wave across the cloak's lengt
 const CAPE_CLOTH = {
   segments: 12,       // points in the chain
   segLen: 9,         // px between points (cape length = (segments-1) * segLen)
-  gravity: 2000,      // px/s^2
-  drag: 3.6,          // per-second velocity loss = air resistance. THE "streams out behind you" knob
-  lift: 0.8,         // 0..1: how much gravity is cancelled at full run speed (1 = cape flies perfectly flat)
-  flutter: 1400,      // px/s^2 turbulence at the tip while moving
-  backBias: 2000,      // px/s^2 gentle push toward the back of the body, so the cape never flips over your front mid-air
+  gravity: 1500,      // px/s^2
+  drag: 5.6,          // per-second velocity loss = air resistance. THE "streams out behind you" knob
+  lift: 0.2,         // 0..1: how much gravity is cancelled at full run speed (1 = cape flies perfectly flat)
+  flutter: 400,      // px/s^2 turbulence at the tip while moving
+  backBias: 5000,      // px/s^2 gentle push toward the back of the body, so the cape never flips over your front mid-air
   iterations: 6,      // constraint passes per step (more = less stretchy)
-  bend: 0.22,         // 0..1: resists sharp folds (higher = stiffer, stays straighter)
+  bend: 0.5,         // 0..1: resists sharp folds (higher = stiffer, stays straighter)
   step: 1 / 120,      // fixed physics step (s) - keeps the sim stable at any framerate
   maxSteps: 6,        // cap steps per frame so a lag spike can't spiral
-  w0: 12, w1: 50,     // ribbon width at the collar / at the hem (px)
-  ripple: 0.2,       // 0..1 width wobble along the hem
+  w0: 10, w1: 55,     // ribbon width at the collar / at the hem (px)
+  ripple: 0.4,       // 0..1 width wobble along the hem
   rootOffset: { x: -110, y: -180 }, // WHERE THE CAPE HANGS FROM, RELATIVE TO CLOAK_POSE's x/y (art px, + = forward / down). The sprite cloak's pivot sits at the FRONT collar; this moves it back to the nape. TURN ON CLOAK_DEBUG_MARKERS TO SEE IT (cyan dot)
 };
-const CAPE_COLORS = ["#0000ff", "#2b3be3", "#2e45fd"]; // collar -> middle -> hem
+const CAPE_COLORS = ["#0000ff", "#0000ff", "#0000ff"]; // collar -> middle -> hem
 const CAPE_EDGE = "#0000ff";
 const CAPE_EDGE_GLOW = "#0000ff";
+
+/* ---- CAPE DISSOLVE ("GHOST TAIL") - PORTED FROM capeLab.html ----
+   THE SAME NOISE-THRESHOLD SHADER AS THE SPAWN DISSOLVE, RUN ALONG THE VERLET CAPE: NOTHING IS
+   EATEN NEAR THE COLLAR, THE HEM BREAKS UP INTO A GLOWING BURN EDGE AND FADES OUT. THE NOISE IS PINNED
+   TO THE CLOTH (NOT THE SCREEN) AND DRIFTS TOWARD THE HEM, SO THE BURN FRONT LICKS OFF THE TAIL.
+   APPLIES TO EVERY POSE THE VERLET CAPE IS DRAWN IN (idle / run / jump / fall) AND TO BOTH IDLE LAYERS.
+   PRESS G TO TOGGLE LIVE. EVERY NUMBER IS SAFE TO TWEAK LIVE. capeLab.html's VALUES ARE FOR A CAPE ~2x
+   LONGER THAN THIS ONE, SO THE LENGTH-BASED ONES (cell, flow) ARE HALVED-ish HERE. */
+const CAPE_DISSOLVE = {
+  enabled: true,
+  start: 0.8,   // WHERE ALONG THE CAPE THE DISSOLVE BEGINS (0 = COLLAR, 1 = HEM)
+  amount: 0.7,   // HOW GONE THE HEM GETS (1 = COMPLETELY)
+  cell: 9,       // NOISE BLOB SIZE, PX ALONG THE CAPE (BIGGER = CHUNKIER HOLES)
+  edge: 0.1,    // GLOWING BURN BAND WIDTH (0..1 OF THE NOISE RANGE)
+  flow: 30,      // PX/S THE NOISE DRIFTS TOWARD THE HEM (NEGATIVE = TOWARD THE COLLAR)
+  speed: 0.5,    // FASTER MOVEMENT = DISSOLVE CREEPS UP THE CAPE (0 = ALWAYS STARTS AT `start`)
+  fade: 0.9,     // EXTRA ALPHA FADE AT THE HEM (0..1)
+  glow: 0.2,     // BRIGHTNESS BOOST OF THE BURN EDGE
+  edgeFade: 0.25, // THE STROKED RIM / FOLD LINES FADE OUT OVER THIS MUCH CAPE LENGTH AFTER `start`, SO THEY DON'T OUTLINE THE HOLES
+};
+
+/* ---- IDLE CAPE: VERLET CAPE IN THE IDLE ANIMATION ----
+   THE IDLE SHEET HAS NO CAPE DRAWN, SO WHILE STANDING STILL THE SAME VERLET CHAIN AS MODE 2
+   IS HUNG FROM THE NAPE AND DRAWN BEHIND THE BODY - IN EVERY CAPE MODE (V), NOT JUST MODE 2.
+   IT EASES IN/OUT OF THE RUN-STYLE PHYSICS OVER ~1/blendRate SECONDS, SO STARTING OR STOPPING
+   A RUN DOESN'T SNAP THE CHAIN.
+   TWO LAYERS: A DARK LINING SHEET SITS BEHIND, SHIFTED TOWARD THE BACK EDGE, AND THE MAIN
+   CAPE SITS NARROWER ON TOP, SO THE LINING PEEKS OUT. ONE SIMULATED CHAIN DRAWN TWICE.
+   EVERY NUMBER IS SAFE TO TWEAK LIVE. */
+const IDLE_CAPE = {
+  enabled: true,
+  root: { x: 30, y: -222 },   // ATTACH POINT AT THE BACK OF THE SHOULDERS, IN IDLE ART PX (0,0 = FEET CENTER OF THE CELL, -y = UP, + x = FORWARD). SCALES WITH PLAYER_SHEET_TWEAKS.idle
+  rootBob: [0, -2, -6, -7, -7, -5], // PX THE SHOULDERS RISE PER IDLE FRAME (MEASURED FROM THE HEAD'S TOP EDGE), SO THE CAPE RIDES THE BREATHING
+  blendRate: 6,               // HOW FAST THE PHYSICS EASES BETWEEN RUN-STYLE AND IDLE-STYLE (PER SECOND)
+  backBias: 150,              // px/s^2 STEADY LEAN TOWARD THE BACK (RUN-STYLE IS 2000 - FAR TOO STRONG FOR STANDING)
+  gust: 850,                  // px/s^2 EXTRA PUSH AT THE PEAK OF A GUST
+  gustHz: 0.35,               // GUSTS PER SECOND
+  flutter: 150,               // px/s^2 TURBULENCE AT THE HEM WHILE STANDING (THE RUN VERSION SCALES WITH SPEED, WHICH IS ~0 HERE)
+  layered: true,              // false = SINGLE SHEET
+  topWidth: 0.84,             // WIDTH OF THE TOP SHEET (1 = FULL RIBBON WIDTH)
+  liningShift: 0.12,          // HOW FAR THE LINING SLIDES TOWARD THE BACK EDGE (FRACTION OF RIBBON WIDTH)
+  liningColors: ["#37025a", "#830cde", "#00ffff"], // collar -> middle -> hem
+  liningEdge: "#A55AFF",
+  liningGlow: "#830cde",
+};
+
+/* ---- ATTACK CAPE: VERLET CAPE + WIND GUST ON THE SPELL CAST ----
+   attack.png IS A SINGLE FRAME WITH NO CAPE DRAWN, SO THE SAME VERLET CHAIN IS HUNG FROM THE NAPE
+   WHILE THE CAST POSE IS UP (IN EVERY CAPE MODE, LIKE IDLE_CAPE), WITH THE SAME TWO-LAYER LOOK.
+   THE MOMENT THE SPELL IS CAST A GUST OF WIND BLOWS THE CAPE BACK (AND LIFTS IT A LITTLE): IT SWELLS
+   QUICKLY, PEAKS EARLY, THEN EASES OFF OVER gustTime. EVERY NUMBER IS SAFE TO TWEAK LIVE.
+   TO PLACE THE CAPE: SET CLOAK_DEBUG_MARKERS TO true - THE CYAN DOT IS THE ATTACH POINT. */
+const ATTACK_CAPE = {
+  enabled: true,
+  root: { x: 0, y: -185 },   // ATTACH POINT AT THE BACK OF THE SHOULDERS, IN ATTACK ART PX (0,0 = FEET CENTER OF THE CELL, -y = UP, + x = FORWARD). SCALES WITH PLAYER_SHEET_TWEAKS.attack
+  blendRate: 20,             // HOW FAST THE PHYSICS / ATTACH POINT EASE INTO THE ATTACK POSE (PER SECOND)
+  backBias: 600,             // px/s^2 STEADY LEAN TOWARD THE BACK WHILE CASTING
+  flutter: 250,              // px/s^2 TURBULENCE AT THE HEM DURING THE CAST
+  gust: 7000,                // px/s^2 PEAK BACKWARD PUSH OF THE CAST GUST
+  gustLift: 0.7,             // 0..1: FRACTION OF GRAVITY CANCELLED AT THE GUST'S PEAK (THE CAPE FLIES UP AND BACK)
+  gustTime: 0.6,             // SECONDS THE GUST LASTS (ATTACK_HOLD_TIME IS 0.35, SO IT SETTLES A LITTLE AFTER THE POSE ENDS)
+};
 
 const SCALE = 0.5;
 const MOVE_SPEED = 650;
@@ -190,7 +275,7 @@ const WALL_JUMP_PUSH = 480;         // horizontal px/s pushed away from wall
 const WALL_JUMP_LOCK_TIME = 0.18;   // seconds of overridden horizontal input after wall jump
 
 /* ---------- SPELL CONFIG ---------- */
-const SPELL_SRC = "assets/images/spell.png";
+const SPELL_SRC = "assets/images/vfx/spell.png";
 const SPELL_FRAME_COUNT = 7;
 const SPELL_SCALE = 1; // tweak once you see it in place
 const SPELL_ANIM_SPEED = 14; // frames per second for spell sheet
@@ -206,21 +291,27 @@ const SPELL_FORWARD_OFFSET = 40; // extra px in front of player beyond half widt
                 THEIR FRAMES OVER THE SAME HOLD TIME THAT LOCKS MOVEMENT)
      loop     - REPEAT (OTHERWISE HOLDS THE LAST FRAME)
      manual   - NO AUTOMATIC STEPPING; updateRun() PICKS THE FRAME */
+/* KICK FRAME TIMING: RELATIVE HOLD WEIGHT PER KICK FRAME (0-5). THE WEIGHTS ARE SPLIT ACROSS THE
+   SAME ATTACK_KICK_HOLD_TIME, SO THE TOTAL KICK LENGTH (AND THE MOVEMENT LOCK) NEVER CHANGES - ONLY
+   WHERE THE TIME GOES. FRAMES 0 AND 4 (WIND-UP / IMPACT) LINGER, THE REST SNAP BY.
+   1 EVERYWHERE = EVEN TIMING. TUNE LIVE: RAISE A NUMBER TO HOLD THAT FRAME LONGER. */
+const KICK_FRAME_HOLDS = [1.3, 0.4, 0.3, 0.4, 2.7, 0.3];
+const IDLE_FPS = 6;// 6 FRAMES AT 6 FPS = ONE BREATH PER SECOND. LOWER = SLOWER, CALMER
 const PLAYER_ANIMS = {
-  idle:       { sheet: "idle",       from: 0, to: PLAYER_SHEETS.idle.frames - 1, fps: 4, loop: true },
+  idle:       { sheet: "idle",       from: 0, to: PLAYER_SHEETS.idle.frames - 1, fps: IDLE_FPS, loop: true },
   run:        { sheet: "run",        from: RUN.from, to: RUN.to, manual: true },
   jump:       { sheet: "jump",       from: 0, to: 0 },
   fall:       { sheet: "jump",       from: 1, to: 1 },
   wallSlide:  { sheet: "wall_slide", from: 0, to: 0 },
   attack:     { sheet: "attack",     from: 0, to: PLAYER_SHEETS.attack.frames - 1, duration: ATTACK_HOLD_TIME },
-  attackKick: { sheet: "kick",       from: 0, to: PLAYER_SHEETS.kick.frames - 1, duration: ATTACK_KICK_HOLD_TIME },
+  attackKick: { sheet: "kick",       from: 0, to: PLAYER_SHEETS.kick.frames - 1, duration: ATTACK_KICK_HOLD_TIME, holds: KICK_FRAME_HOLDS },
 };
 
 /* ---------- KICK SWOOSH CONFIG ----------
    swoosh.png IS 4 FRAMES, EACH 400x400 - SAME CELL SIZE AS THE PLAYER SHEETS'
    FRAMES - SO IT'S DRAWN WITH THE EXACT SAME pos/anchor/scale AS THE PLAYER
    AND LANDS PERFECTLY OVER THE KICK POSE WITH NO OFFSET TUNING NEEDED. */
-const SWOOSH_SRC = "assets/images/swoosh.png";
+const SWOOSH_SRC = "assets/images/vfx/swoosh.png";
 const SWOOSH_FRAME_COUNT = 4;
 const SWOOSH_FPS = 25;             // ~0.25s for 4 frames, matched to ATTACK_KICK_HOLD_TIME
 const SWOOSH_Z = 11;               // in front of player (10)
@@ -246,7 +337,7 @@ const FX = { squash: true, hitStop: true, dash: true, dissolve: true, lighting: 
 /* ---- SQUASH & STRETCH ----
    x/y ARE SCALE MULTIPLIERS AROUND THE FEET (1 = NORMAL). A SPRING PULLS THE
    SCALE BACK TO ITS TARGET, SO EVERY POP OVERSHOOTS AND WOBBLES A LITTLE. */
-const SQUASH_STIFFNESS = 520;        // spring pull toward target (higher = snappier)
+const SQUASH_STIFFNESS = 500;        // spring pull toward target (higher = snappier)
 const SQUASH_DAMPING = 24;           // friction (lower = more wobble; ~2*sqrt(stiffness) = none)
 const SQUASH_JUMP = { x: 0.78, y: 1.28 };       // pop on jump launch (thin + tall)
 const SQUASH_LAND_MAX = { x: 1.12, y: 0.78 };   // squash on a full-strength landing (wide + short)
@@ -257,7 +348,8 @@ const SQUASH_AIR_STRETCH_VEL = 1100; // |vel.y| (px/s) where that stretch maxes 
 const SQUASH_DASH = { x: 1.1, y: 0.9 };        // stretched long + low while dashing
 
 /* ---- HIT-STOP ---- */
-const HITSTOP_KICK = 0.09;           // seconds the whole game freezes when the kick lands
+const HITSTOP_TIMESCALE = 0.0001;    // GAME SPEED DURING A FREEZE (NOT 0 - SEE hitStop())
+const HITSTOP_KICK = 0.09;          // seconds the whole game freezes when the kick lands
 
 /* ---- DASH + AFTERIMAGES ----
    GHOSTS ARE FLAT-COLOR SILHOUETTES OF THE PLAYER'S CURRENT FRAME, SPAWNED
@@ -303,10 +395,10 @@ const LAMP_RADIUS = 400;             // light radius of each lamp
 const LAMP_POLE_H = 120;             // px the lamp orb sits above the ground
 
 /* ---------- LEVEL ART CONFIG ---------- */
-const TILES_SRC = "assets/images/tiles.png";      // 6 frames, 60x60px each
-const TILE_SIZE = 40;
+const TILES_SRC = "assets/images/map/tiles.png";      // 6 frames, 60x60px each
+const TILE_SIZE = 50;
 const TILE_FRAME_COUNT = 6;
-const PLATFORM_H = 40;              // platform collider height (one tile row)
+const PLATFORM_H = 50;              // platform collider height (one tile row)
 
 // TILE FRAMES SCATTERED ACROSS PLATFORMS (0-5). SEEDED, SO PATTERN IS
 // IDENTICAL ON EVERY RELOAD. CHANGE TILE_SEED TO RESHUFFLE. IF SHEET HAS
@@ -317,24 +409,43 @@ const TILE_LEFT_CAP = null;
 const TILE_RIGHT_CAP = null;
 const TILE_SEED = 1337;
 
-const GROUND_SRC = "assets/images/pillars.png";    // 125x80px, repeated along ground
+const GROUND_SRC = "assets/images/map/pillars.png";    // 125x80px, repeated along ground
 const GROUND_TILE_W = 160;
 const GROUND_W = 16000;              // 100 repeats of 160px
 const GROUND_H = 80;
 
 /* ---------- WALLS (FOR WALL JUMPING) ----------
-   NO DEDICATED WALL ART YET - PLAIN TINTED RECTS WITH LIGHTER OUTLINE.
-   SWAP IN A SPRITE LATER BY REPLACING k.rect/k.color IN buildWalls()
-   WITH k.sprite(). EACH SITS ON GROUND AND REACHES UP GROUND_Y - y px,
-   SO TALLER VALUES = TALLER WALL. LIST BELOW MAKES ONE NARROW SHAFT
+   WALLS ARE DRAWN AS STONE COLUMNS (SEE COLUMN ART BELOW) OVER AN INVISIBLE COLLIDER.
+   x = LEFT EDGE OF THE SHAFT. EACH SITS ON GROUND AND REACHES UP h px,
+   SO TALLER VALUES = TALLER WALL (KEEP h AT 100+ - THE CAP AND BASE ARE 50px EACH). LIST BELOW MAKES ONE NARROW SHAFT
    (CLING RIGHT, JUMP LEFT, CLING, JUMP BACK) PLUS ONE LONE WALL. */
-const WALL_W = 30;
-const WALL_COLOR = [131, 12, 222];        // 830cde
-const WALL_OUTLINE_COLOR = [196, 91, 255]; // c4b5fd-ish highlight edge
+/* ---- COLUMN ART ----
+   column.png IS ONE ROW OF SEVEN 50x50 FRAMES (DRAWN 1000x1000, SCALED DOWN):
+     0 = CAPITAL (TOP, 50px WIDE)      1 = PLAIN SHAFT (STRETCHABLE)
+     2-5 = RUNE SHAFT PIECES (SCATTERED AMONG THE PLAIN ONES)
+     6 = BASE (BOTTOM, 50px WIDE)
+   THE SHAFT ART IS NARROWER THAN THE CAP / BASE (IT SPANS x 4..46 OF THE 50px CELL), SO THE COLLIDER
+   IS ONLY THE SHAFT WIDTH (WALL_W) AND THE ART IS SHIFTED LEFT BY COLUMN_SHAFT_INSET TO LINE UP -
+   THE CAP / BASE OVERHANG THE COLLIDER BY THAT MUCH ON EACH SIDE.
+   EACH COLUMN IS: CAP ON TOP + BASE ON THE BOTTOM + AS MANY 50px SHAFT PIECES AS FIT BETWEEN
+   (STRETCHED A HAIR VERTICALLY SO THEY FILL THE GAP EXACTLY - NO CROPPED PIECE, NO SEAM).
+     COLUMN_RUNE_CHANCE - 0..1 CHANCE EACH SHAFT PIECE IS A RUNE PIECE INSTEAD OF PLAIN
+     COLUMN_SEED        - CHANGE TO RESHUFFLE WHICH RUNES SHOW UP WHERE (SAME EVERY RELOAD OTHERWISE) */
+const COLUMN_SRC = "assets/images/map/column.png";
+const COLUMN_FRAME = 50;              // px per frame (square)
+const COLUMN_FRAME_COUNT = 7;
+const COLUMN_TOP = 0;
+const COLUMN_PLAIN = 1;
+const COLUMN_RUNES = [2, 3, 4, 5];
+const COLUMN_BASE = 6;
+const COLUMN_SHAFT_INSET = 4;         // px between the cell's left edge and the shaft's left edge
+const COLUMN_RUNE_CHANCE = 0.6;
+const COLUMN_SEED = 4242;
+const WALL_W = COLUMN_FRAME - COLUMN_SHAFT_INSET * 2; // 42 = SHAFT WIDTH
 const WALLS = [
-  { x: 13000, h: 200},
-  { x: 12000 + 160, h: 340 }, 
-  { x: 12550, h: 300 },       
+  { x: 4000, h: 400},
+  { x: 12000 + 160, h: 440 }, 
+  { x: 12550, h: 400 },       
 ];
 
 
@@ -350,11 +461,11 @@ const TRAIL_COLORS = ["#0000ff", "#830cde"];
 const RUN_TRAIL_INTERVAL = 0.03;   // seconds between run motes (lower = denser)
 const AIR_TRAIL_INTERVAL = 0.025;   // seconds between airborne motes
 const AIR_TRAIL_DELAY = 0.05;       // airtime before air trail starts
-const RUN_TRAIL_HEIGHT = 90;        // px above feet where run motes center (sprite ~100px tall: 50 = mid-body)
+const RUN_TRAIL_HEIGHT = 102;        // px above feet where run motes center (sprite ~100px tall: 50 = mid-body)
 const TRAIL_MIN_SPEED = 80;         // horizontal px/s that counts as "running"
-const TRAIL_LIFE = [0.35, 0.55];    // seconds a mote lives (min, max)
-const TRAIL_SIZE = [4, 7];      // starting radius in px (min, max)
-const TRAIL_GLOW = 2.4;             // halo radius multiple of mote; 0 = no glow
+const TRAIL_LIFE = [0.35, 0.45];    // seconds a mote lives (min, max)
+const TRAIL_SIZE = [4, 6];      // starting radius in px (min, max)
+const TRAIL_GLOW = 0;             // halo radius multiple of mote; 0 = no glow
 
 /* ---------- ONE-SHOT EFFECT CONFIG ----------
    SHORT SPRITE ANIMATIONS THAT PLAY ONCE AND REMOVE THEMSELVES (SEE
@@ -365,13 +476,13 @@ const TRAIL_GLOW = 2.4;             // halo radius multiple of mote; 0 = no glow
      puff    - landing burst, replaces old procedural dust puffs
      spawnFx - plays once whenever spawnPlayer() runs (first load and
                respawn-after-falling-off-the-level) */
-const PUFF_SRC = "assets/images/puff.png";
+const PUFF_SRC = "assets/images/vfx/puff.png";
 const PUFF_FRAME_COUNT = 6;
 const PUFF_FPS = 18;                // one-shot playback speed
 const PUFF_MIN_IMPACT = 350;        // landing vel.y (px/s) needed to trigger puff
 const PUFF_SCALE = [0.7, 0.9];     // min/max final scale, driven by landing force
 
-const SPAWN_FX_SRC = "assets/images/spawn.png";
+const SPAWN_FX_SRC = "assets/images/vfx/spawn.png";
 const SPAWN_FX_FRAME_COUNT = 7;
 const SPAWN_FX_FPS = 14;
 const SPAWN_FX_SCALE = 0.9;         // final scale (matches SCALE; spawn.png is 1:1 pixel-art)
@@ -650,10 +761,63 @@ function cloakLayer(which) { /* which: "cloakBack" or "cloakFront" - PICKS LOADE
 const sheetSprite = (key) => `player_${key}`;
 const sheetScales = {}; // key -> SCALE-TO-FIT FACTOR (1 WHEN THE SHEET IS ALREADY PLAYER_FRAME TALL)
 const sheetScale = (key) => sheetScales[key] ?? 1;
+const footGaps = {}; // key -> PER-FRAME PX BETWEEN THE LOWEST VISIBLE PIXEL AND THE CELL'S BOTTOM EDGE (ONLY FOR snapFeet SHEETS)
+
+// THE TWEAK ENTRY FOR A SHEET (CREATED ON DEMAND SO [ ] CAN SCALE ANY SHEET LIVE)
+function sheetTweak(key) {
+  return (PLAYER_SHEET_TWEAKS[key] ??= { scale: 1, offsetX: 0, offsetY: 0, snapFeet: false });
+}
+
+/* HOW ONE FRAME OF A SHEET IS DRAWN: s = FINAL SCALE (SCALE-TO-FIT x TWEAK), ox / oy = LOCAL-SPACE
+   PX SHIFT (FORWARD-MIRRORED / DOWN). SHARED BY THE PLAYER AND THE DASH GHOSTS SO THEY AGREE. */
+function sheetPlace(key, frame, flip) {
+  const tw = sheetTweak(key);
+  const s = sheetScale(key) * tw.scale;
+  const gap = tw.snapFeet ? (footGaps[key]?.[frame] ?? 0) : 0; // GAP IS IN SHEET PX, SO IT SCALES WITH THE ART
+  return { s, ox: (flip ? -1 : 1) * tw.offsetX, oy: gap * s + tw.offsetY };
+}
+
+// SCANS A SHEET'S PIXELS ONCE AT LOAD: PER FRAME, HOW MANY PX THE LOWEST VISIBLE PIXEL SITS ABOVE THE
+// CELL'S BOTTOM EDGE. (NEEDS THE PAGE SERVED OVER http - SAME AS THE REST OF THE GAME. FAILS SOFT.)
+function measureFootGaps(key, sheet) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cw = Math.floor(img.width / sheet.frames);
+        const ch = img.height;
+        const cv = document.createElement("canvas");
+        cv.width = img.width;
+        cv.height = ch;
+        const cx = cv.getContext("2d", { willReadFrequently: true });
+        cx.drawImage(img, 0, 0);
+        const px = cx.getImageData(0, 0, img.width, ch).data;
+        const gaps = [];
+        for (let f = 0; f < sheet.frames; f++) {
+          let bottom = -1;
+          for (let y = ch - 1; y >= 0 && bottom < 0; y--) {
+            for (let x = f * cw; x < (f + 1) * cw; x++) {
+              if (px[(y * img.width + x) * 4 + 3] > FOOT_ALPHA_MIN) { bottom = y; break; }
+            }
+          }
+          gaps.push(bottom < 0 ? 0 : ch - 1 - bottom);
+        }
+        footGaps[key] = gaps;
+        console.log(`[player sheets] ${key}: foot gaps per frame (px above cell bottom):`, gaps.join(", "));
+      } catch (e) {
+        console.warn(`[player sheets] ${key}: couldn't measure foot gaps (${e.message}) - snapFeet skipped, use offsetY instead.`);
+      }
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = sheet.src;
+  });
+}
 
 async function loadPlayerSprites() {
   for (const [key, sheet] of Object.entries(PLAYER_SHEETS)) {
     await k.loadSprite(sheetSprite(key), sheet.src, { sliceX: sheet.frames, sliceY: 1 });
+    if (sheetTweak(key).snapFeet) await measureFootGaps(key, sheet);
     const data = k.getSprite(sheetSprite(key))?.data;
     if (!data) continue;
     // EVERY SHEET IS DRAWN AT THE SAME ON-SCREEN SIZE AS A 400x400 CELL, SO AN OVERSIZED
@@ -690,6 +854,14 @@ function playerSprite() {
       const a = this.anim;
       if (!a || a.manual || a.to === a.from) return;
       const n = a.to - a.from + 1;
+      if (a.holds) { // PER-FRAME TIMING: THE duration IS SPLIT BY THE holds WEIGHTS (HOLDS LAST FRAME AT THE END)
+        this.animT += k.dt();
+        let w = (this.animT / a.duration) * a.holds.reduce((s, h) => s + h, 0);
+        let i = 0;
+        while (i < n - 1 && w >= a.holds[i]) { w -= a.holds[i]; i++; }
+        this.frame = a.from + i;
+        return;
+      }
       const fps = a.fps ?? n / a.duration;
       this.animT += k.dt();
       let i = Math.floor(this.animT * fps);
@@ -698,11 +870,13 @@ function playerSprite() {
     },
     draw() {
       const name = sheetSprite(this.sheet);
+      const pl = sheetPlace(this.sheet, this.frame, this.flipX); // SIZE TWEAK + FOOT SNAP (SEE PLAYER_SHEET_TWEAKS)
       k.drawSprite({
         sprite: name,
         frame: this.frame,
+        pos: k.vec2(pl.ox, pl.oy),
         anchor: "bot",
-        scale: sheetScale(this.sheet),
+        scale: pl.s,
         flipX: this.flipX,
         // DISSOLVE ONLY WHILE IT'S ACTUALLY RUNNING (AT dissolveAmount 0 THE SHADER IS A NO-OP ANYWAY)
         ...(FX.dissolve && dissolveAmount > 0
@@ -754,6 +928,7 @@ async function loadEffectSprites() {
 async function loadLevelSprites() {
   await k.loadSprite("tiles", TILES_SRC, { sliceX: TILE_FRAME_COUNT, sliceY: 1 });
   await k.loadSprite("ground", GROUND_SRC);
+  await k.loadSprite("column", COLUMN_SRC, { sliceX: COLUMN_FRAME_COUNT, sliceY: 1 });
 }
 
 function makeRng(seed) { // TINY SEEDED PRNG (MULBERRY32) - STABLE "RANDOM" TILE PATTERN BETWEEN RELOADS
@@ -824,18 +999,37 @@ const plats = [
 }
 
 function buildWalls() { // VERTICAL WALL COLLIDERS FOR WALL-SLIDING/JUMPING. TAGGED "wall" SO COLLIDE HANDLERS BELOW (touchingWall / onCollideUpdate) FIND THEM WITHOUT CARING ABOUT GROUND/PLATFORMS
+  const rand = makeRng(COLUMN_SEED);
   WALLS.forEach((w) => {
-    k.add([
+    // INVISIBLE COLLIDER (SHAFT WIDTH) - THE ART IS ATTACHED AS CHILD SPRITES, LIKE THE PLATFORMS
+    const wall = k.add([
       k.pos(w.x, GROUND_Y - w.h),
-      k.rect(WALL_W, w.h),
-      k.color(...WALL_COLOR),
-      k.opacity(0.85),
-      k.outline(2, k.rgb(...WALL_OUTLINE_COLOR)),
-      k.area(),
+      k.area({ shape: new k.Rect(k.vec2(0, 0), WALL_W, w.h) }),
       k.body({ isStatic: true }),
       k.z(2),
       "wall",
     ]);
+
+    const artX = -COLUMN_SHAFT_INSET; // CAP / BASE ARE WIDER THAN THE SHAFT, SO SHIFT THE ART LEFT TO CENTER IT ON THE COLLIDER
+    const midH = Math.max(0, w.h - COLUMN_FRAME * 2);
+    const pieces = Math.max(1, Math.ceil(midH / COLUMN_FRAME));
+    const pieceH = midH / pieces; // EVEN SPLIT: SHAFT PIECES STRETCH SLIGHTLY INSTEAD OF CROPPING THE LAST ONE
+
+    // SHAFT FIRST (DRAWN UNDER THE CAP / BASE)
+    if (midH > 0) {
+      for (let i = 0; i < pieces; i++) {
+        const frame = rand() < COLUMN_RUNE_CHANCE
+          ? COLUMN_RUNES[Math.floor(rand() * COLUMN_RUNES.length)]
+          : COLUMN_PLAIN;
+        wall.add([
+          k.sprite("column", { frame }),
+          k.pos(artX, COLUMN_FRAME + i * pieceH),
+          k.scale(1, pieceH / COLUMN_FRAME),
+        ]);
+      }
+    }
+    wall.add([k.sprite("column", { frame: COLUMN_TOP }), k.pos(artX, 0)]);
+    wall.add([k.sprite("column", { frame: COLUMN_BASE }), k.pos(artX, w.h - COLUMN_FRAME)]);
   });
 }
 
@@ -946,6 +1140,7 @@ function playAttack() {
   visualLift = 0;
   player.play("attack");
   spawnSpell();
+  gustCape(); // WIND BLOWS THE CAPE BACK (SEE ATTACK_CAPE)
 
   k.wait(ATTACK_HOLD_TIME, () => {
     isAttacking = false;
@@ -1129,6 +1324,20 @@ k.onKeyPress("v", () => { // CYCLE CAPE MODE: sprites -> spring + warp -> verlet
   capeMode = (capeMode + 1) % CAPE_MODES.length;
   if (capeMode === 2) cloth.need = true; // RE-HANG THE CHAIN FROM THE COLLAR
 });
+
+// [ AND ] SHRINK / GROW WHICHEVER SHEET IS ON SCREEN (SEE PLAYER_SHEET_TWEAKS). FOR DIALING IN SIZE
+// BY EYE - COPY THE LOGGED NUMBER INTO THE CONFIG SO IT SURVIVES A RELOAD.
+function nudgeSheetScale(delta) {
+  if (!player) return;
+  const tw = sheetTweak(player.sheet);
+  tw.scale = Math.max(0.2, Math.round((tw.scale + delta) * 100) / 100);
+  console.log(`[tweak] ${player.sheet} scale = ${tw.scale}  ->  PLAYER_SHEET_TWEAKS.${player.sheet}.scale`);
+}
+k.onKeyPress("g", () => { // TOGGLE THE CAPE'S GHOST-TAIL DISSOLVE (SEE CAPE_DISSOLVE) TO A/B IT
+  CAPE_DISSOLVE.enabled = !CAPE_DISSOLVE.enabled;
+});
+k.onKeyPress("[", () => nudgeSheetScale(-0.02));
+k.onKeyPress("]", () => nudgeSheetScale(0.02));
 
 k.onKeyPress("l", () => {
   lightingOn = !lightingOn;
@@ -1375,7 +1584,11 @@ function updateSquash(dt) {
 let hitStopTimeout = null;
 function hitStop(seconds) {
   if (!FX.hitStop) return;
-  k.debug.timeScale = 0;
+  // NOT EXACTLY 0: kaplay's body() INTERPOLATES BETWEEN PHYSICS STEPS ONLY WHILE restDt() * timeScale
+  // IS NON-ZERO. AT timeScale = 0 THE PLAYER'S fixedUpdate CLEARS ITS "PREVIOUS PHYSICS POSITION" AND
+  // NEVER RE-SETS IT, SO THE FIRST FRAME AFTER THE FREEZE CRASHED ("Cannot read properties of null
+  // (reading 'x')" IN body.ts). A TINY SCALE FREEZES EVERYTHING THE SAME TO THE EYE AND KEEPS IT SAFE.
+  k.debug.timeScale = HITSTOP_TIMESCALE;
   clearTimeout(hitStopTimeout);
   hitStopTimeout = setTimeout(() => {
     k.debug.timeScale = 1;
@@ -1432,12 +1645,13 @@ function drawGhosts() {
   for (const g of ghosts) {
     const t = g.age / GHOST_LIFE; // 0 -> 1 OVER THE GHOST'S LIFE
     const shrink = 1 - 0.12 * t;  // SLIGHT SHRINK SO THE TRAIL TAPERS
+    const pl = sheetPlace(g.sheet, g.frame, g.flip);
     k.drawSprite({
       sprite: sheetSprite(g.sheet),
       frame: g.frame,
-      pos: k.vec2(g.x, g.y),
+      pos: k.vec2(g.x + pl.ox * SCALE * g.sx, g.y + pl.oy * SCALE * g.sy),
       anchor: "bot",
-      scale: k.vec2(SCALE * g.sx * shrink * sheetScale(g.sheet), SCALE * g.sy * shrink * sheetScale(g.sheet)),
+      scale: k.vec2(SCALE * g.sx * shrink * pl.s, SCALE * g.sy * shrink * pl.s),
       flipX: g.flip,
       shader: "silhouette",
       uniform: { u_color: g.color, u_alpha: GHOST_ALPHA * Math.pow(1 - t, 1.5) },
@@ -1500,6 +1714,9 @@ function resetEffectState() {
   capeSpring.a = capeSpring.v = 0;
   capeHVel = 0;
   capePrevX = null;
+  idleBlend = 1; // SPAWNS STANDING STILL
+  attackBlend = 0;
+  cloth.gustT = 0;
   cloth.need = true;
 }
 
@@ -1648,6 +1865,63 @@ vec4 frag(vec2 pos, vec2 uv, vec4 color, sampler2D tex) {
 }
 `;
 
+/* CAPE DISSOLVE (GHOST TAIL): SAME NOISE AS DISSOLVE_FRAG, BUT THE THRESHOLD GROWS ALONG THE CAPE
+   INSTEAD OF OVER TIME. THE RIBBON'S UVs ARE (u = ACROSS 0..1, v = ALONG COLLAR 0 -> HEM 1), SO THE NOISE
+   IS MEASURED IN CAPE PX (u_len ALONG, u_wid ACROSS) AND STAYS GLUED TO THE CLOTH AS IT MOVES. */
+const CAPE_DISSOLVE_FRAG = `
+uniform float u_start;
+uniform float u_amt;
+uniform float u_cell;
+uniform float u_edge;
+uniform float u_flow;
+uniform float u_fade;
+uniform float u_glow;
+uniform float u_time;
+uniform float u_len;
+uniform float u_wid;
+uniform vec3 u_edgeA;
+uniform vec3 u_edgeB;
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+vec4 frag(vec2 pos, vec2 uv, vec4 color, sampler2D tex) {
+  vec4 base = def_frag();
+  float t = clamp((uv.y - u_start) / max(1.0 - u_start, 0.001), 0.0, 1.0); // 0 ABOVE THE START -> 1 AT THE HEM
+  if (t <= 0.0) return base;
+
+  vec2 px = vec2(uv.y * u_len - u_time * u_flow, uv.x * u_wid);
+  float n = vnoise(px / u_cell) * 0.65 + vnoise(px / (u_cell * 0.4) + 17.0) * 0.35;
+  n = clamp((n - 0.18) / 0.64, 0.0, 1.0);
+
+  float thr = t * u_amt * (1.0 + u_edge) - u_edge;
+  if (n < thr) return vec4(0.0);
+
+  float keep = 1.0 - u_fade * t; // ALPHA FADE TOWARD THE HEM
+  float band = (n - thr) / u_edge;
+  if (band < 1.0 && base.a > 0.0) {
+    vec3 glow = mix(u_edgeA, u_edgeB, band) / 255.0 * (1.0 + 0.6 * u_glow * (1.0 - band));
+    float a = base.a * keep;
+    return vec4(glow * a, a); // PREMULTIPLIED, SAME AS DISSOLVE_FRAG
+  }
+  return base * keep;
+}
+`;
+
 const SILHOUETTE_FRAG = `
 uniform vec3 u_color;
 uniform float u_alpha;
@@ -1706,6 +1980,7 @@ vec4 frag(vec2 pos, vec2 uv, vec4 color, sampler2D tex) {
 
 async function loadShaders() {
   await k.loadShader("dissolve", null, DISSOLVE_FRAG);
+  await k.loadShader("capeDissolve", null, CAPE_DISSOLVE_FRAG);
   await k.loadShader("silhouette", null, SILHOUETTE_FRAG);
   await k.loadShader("lighting", null, buildLightingFrag());
 }
@@ -1719,6 +1994,8 @@ let capePrevX = null;                // last frame's player x, for measuring tha
 let capeSpeed = 0;                   // |horizontal speed| / MOVE_SPEED (a dash pushes it past 1)
 let capeWavePhase = 0;               // mode 1: traveling-wave phase (accumulated, so speed changes never jump it)
 let capeDirSmooth = 1;               // facing eased to -1..1, so the cloth root slides across the back on a turn
+let attackBlend = 0;                 // 0 = NOT CASTING, 1 = CASTING (SEE ATTACK_CAPE). EASED THE SAME WAY AS idleBlend
+let idleBlend = 1;                   // 0 = RUN-STYLE CAPE PHYSICS / ROOT, 1 = IDLE-STYLE (SEE IDLE_CAPE). EASED, SO THE CHAIN NEVER SNAPS
 const CAPE_RGB = CAPE_COLORS.map((c) => k.rgb(c));
 const CAPE_EDGE_RGB = k.rgb(CAPE_EDGE);
 const CAPE_GLOW_RGB = k.rgb(CAPE_EDGE_GLOW);
@@ -1738,6 +2015,10 @@ function updateCape(dt) {
   capeHVel += (hv - capeHVel) * Math.min(1, dt * 14);
   capeSpeed = Math.abs(capeHVel) / MOVE_SPEED;
   capeDirSmooth += (dir - capeDirSmooth) * Math.min(1, dt * 18);
+  const idleTarget = IDLE_CAPE.enabled && currentAnim === "idle" ? 1 : 0;
+  idleBlend += (idleTarget - idleBlend) * Math.min(1, dt * IDLE_CAPE.blendRate);
+  const attackTarget = ATTACK_CAPE.enabled && currentAnim === "attack" ? 1 : 0;
+  attackBlend += (attackTarget - attackBlend) * Math.min(1, dt * ATTACK_CAPE.blendRate);
 
   // MODE 1 SPRING: THE TARGET SWING COMES FROM HOW FAST WE'RE MOVING (FORWARD = SWING BACK)
   // AND FALLING (FALLING = LIFT); THE SPRING THEN CHASES IT, OVERSHOOTING AND SETTLING.
@@ -1804,15 +2085,47 @@ function drawCloakWarped(which, frame, pos, rotDeg, dir) {
      2. SQUEEZE NEIGHBOURS BACK TO THEIR REST DISTANCE (REPEATED A FEW TIMES)
    THE HEAD POINT IS PINNED TO THE COLLAR, SO WHEN THE PLAYER MOVES THE REST OF THE CHAIN
    GETS DRAGGED ALONG AND LAGS BEHIND - THAT LAG *IS* THE FLOWING-CLOTH LOOK. */
-const cloth = { p: [], need: true, t: 0, acc: 0, lastRoot: null };
+const cloth = { p: [], need: true, t: 0, acc: 0, lastRoot: null, dormant: false, gustT: 0 };
+
+// STARTS THE ATTACK'S WIND GUST (SEE ATTACK_CAPE): gustT COUNTS DOWN IN stepCloth()
+function gustCape() {
+  if (ATTACK_CAPE.enabled) cloth.gustT = ATTACK_CAPE.gustTime;
+}
+
+// THE CHAIN RUNS IN MODE 2, AND ALSO IN IDLE AND THE SPELL CAST IN ANY MODE (SEE IDLE_CAPE / ATTACK_CAPE).
+// OUTSIDE ALL OF THOSE IT SLEEPS, AND stepCloth() RE-HANGS IT FROM THE COLLAR WHEN IT WAKES SO IT NEVER
+// RESUMES FROM A STALE POSE.
+function clothActive() {
+  return !!player && (capeMode === 2
+    || (IDLE_CAPE.enabled && currentAnim === "idle")
+    || (ATTACK_CAPE.enabled && currentAnim === "attack"));
+}
 
 function clothRoot() { // WORLD POSITION OF THE COLLAR PIN (SAME ATTACH POINT AS THE SPRITE CLOAK)
   const pose = CLOAK_POSE[currentAnim] ?? CLOAK_POSE.run;
   const sx = SCALE * squash.x;
   const sy = SCALE * squash.y;
+  let lx = pose.x + CAPE_CLOTH.rootOffset.x; // LOCAL (ART PX) ROOT FOR THE RUN-STYLE CAPE
+  let ly = pose.y + CAPE_CLOTH.rootOffset.y - visualLift;
+  if (idleBlend > 0.001) { // IDLE: FOLLOW THE NAPE INSTEAD, INCLUDING THE SIZE TWEAK, FOOT SNAP AND BREATHING BOB
+    const fr = currentAnim === "idle" ? player.frame : 0; // player.frame BELONGS TO ANOTHER SHEET ONCE WE'VE LEFT IDLE
+    const pl = sheetPlace("idle", fr, false);
+    const bob = IDLE_CAPE.rootBob[fr] ?? 0;
+    const ix = IDLE_CAPE.root.x * pl.s + sheetTweak("idle").offsetX;
+    const iy = (IDLE_CAPE.root.y + bob) * pl.s + pl.oy;
+    lx += (ix - lx) * idleBlend;
+    ly += (iy - ly) * idleBlend;
+  }
+  if (attackBlend > 0.001) { // SPELL CAST: HANG FROM THE ATTACK ART'S NAPE (SIZE TWEAK + FOOT SNAP INCLUDED)
+    const pl = sheetPlace("attack", 0, false);
+    const ax = ATTACK_CAPE.root.x * pl.s + sheetTweak("attack").offsetX;
+    const ay = ATTACK_CAPE.root.y * pl.s + pl.oy;
+    lx += (ax - lx) * attackBlend;
+    ly += (ay - ly) * attackBlend;
+  }
   return {
-    x: player.pos.x + (pose.x + CAPE_CLOTH.rootOffset.x) * capeDirSmooth * sx,
-    y: player.pos.y + (pose.y + CAPE_CLOTH.rootOffset.y - visualLift) * sy,
+    x: player.pos.x + lx * capeDirSmooth * sx,
+    y: player.pos.y + ly * sy,
   };
 }
 
@@ -1847,7 +2160,9 @@ function clothLink(a, b, rest, wA, wB, stiff) {
 }
 
 function stepCloth(dt) {
-  if (capeMode !== 2 || !player || dt <= 0) return;
+  if (!player || dt <= 0) return;
+  if (!clothActive()) { cloth.dormant = true; return; }
+  if (cloth.dormant) { cloth.dormant = false; cloth.need = true; }
   if (cloth.need) resetCloth();
   const C = CAPE_CLOTH;
   cloth.acc = Math.min(cloth.acc + dt, C.maxSteps * C.step);
@@ -1862,10 +2177,23 @@ function stepCloth(dt) {
   const h = C.step;
   const damp = Math.max(0, 1 - C.drag * h);
   const run = Math.min(1, capeSpeed);
+  const I = IDLE_CAPE;
+  const B = idleBlend;
+  const A = ATTACK_CAPE;
+  const Ab = attackBlend;
 
   for (let st = 1; st <= steps; st++) {
+    // GUST: 0..1 SWELL, TWO SLOW SINES MULTIPLIED SO THE PEAKS ARE IRREGULAR RATHER THAN A METRONOME
+    const gust = 0.5 + 0.5 * Math.sin(cloth.t * I.gustHz * Math.PI * 2) * (0.6 + 0.4 * Math.sin(cloth.t * 0.7 + 1));
     // SLIDE THE PIN ALONG THE FRAME'S TRAVEL, STEP BY STEP, SO FAST MOVES DON'T JERK THE CHAIN
     const f = st / steps;
+    // CAST GUST ENVELOPE: SWELLS FAST, PEAKS ~1/4 OF THE WAY IN, THEN EASES OFF (0 WHEN NO GUST)
+    let gustEnv = 0;
+    if (cloth.gustT > 0) {
+      const gp = 1 - cloth.gustT / A.gustTime; // 0 -> 1 OVER THE GUST
+      gustEnv = Math.sin(Math.PI * Math.sqrt(Math.min(1, Math.max(0, gp))));
+      cloth.gustT = Math.max(0, cloth.gustT - h);
+    }
     P[0].x = rootPrev.x + (rootNow.x - rootPrev.x) * f;
     P[0].y = rootPrev.y + (rootNow.y - rootPrev.y) * f;
     P[0].px = P[0].x;
@@ -1878,9 +2206,16 @@ function stepCloth(dt) {
       q.px = q.x;
       q.py = q.y;
       const tip = i / (n - 1);
-      const fl = C.flutter * run * tip; // TURBULENCE GROWS TOWARD THE HEM AND WITH SPEED
-      const ax = Math.sin(cloth.t * 9 + i * 0.8) * fl - capeDirSmooth * C.backBias * tip;
-      const ay = C.gravity * (1 - C.lift * run) + Math.cos(cloth.t * 7.3 + i * 1.1) * fl;
+      // RUN-STYLE VS IDLE-STYLE FORCES, EASED BY idleBlend. IDLE = A LIGHT STEADY LEAN BACK + SLOW GUSTS,
+      // WITH TURBULENCE THAT DOESN'T DEPEND ON SPEED (THERE ISN'T ANY).
+      let fl = C.flutter * run + (I.flutter - C.flutter * run) * B;
+      let bias = C.backBias + (I.backBias + gust * I.gust - C.backBias) * B;
+      fl += (A.flutter - fl) * Ab; // SPELL CAST: EASE INTO ITS OWN LEAN / TURBULENCE
+      bias += (A.backBias - bias) * Ab;
+      bias += A.gust * gustEnv; // THE CAST GUST: A BIG EXTRA PUSH TOWARD THE BACK
+      fl *= tip; // TURBULENCE GROWS TOWARD THE HEM
+      const ax = Math.sin(cloth.t * 9 + i * 0.8) * fl - capeDirSmooth * bias * tip;
+      const ay = C.gravity * (1 - C.lift * run - A.gustLift * gustEnv) + Math.cos(cloth.t * 7.3 + i * 1.1) * fl;
       q.x += vx + ax * h * h;
       q.y += vy + ay * h * h;
     }
@@ -1895,23 +2230,65 @@ function stepCloth(dt) {
   cloth.lastRoot = rootNow;
 }
 
+const LINING_RGB = IDLE_CAPE.liningColors.map((c) => k.rgb(c));
+const LINING_EDGE_RGB = k.rgb(IDLE_CAPE.liningEdge);
+const LINING_GLOW_RGB = k.rgb(IDLE_CAPE.liningGlow);
+
+// CAPE DISSOLVE SHADER STATE: ONE UNIFORM OBJECT, REFILLED EACH FRAME BY drawCloth() (NO PER-FRAME ALLOCATION).
+// BURN-EDGE COLORS ARE THE SPAWN DISSOLVE'S, SO THE TWO EFFECTS MATCH.
+let capeDisOn = false;
+const capeDisU = {
+  u_start: 0, u_amt: 0, u_cell: 1, u_edge: 0.2, u_flow: 0, u_fade: 0, u_glow: 1, u_time: 0, u_len: 1, u_wid: 1,
+  u_edgeA: EDGE_INNER_RGB, u_edgeB: EDGE_OUTER_RGB,
+};
+
 function drawCloth() {
-  if (capeMode !== 2 || !player || cloth.need || cloth.p.length < 3) return;
-  if (CAPE_BAKED_ANIMS.has(currentAnim)) return; // THOSE SHEETS HAVE THEIR OWN (OR NO) CAPE
+  if (!clothActive() || cloth.need || cloth.p.length < 3) return;
+  if (CAPE_VERLET_SKIP_ANIMS.has(currentAnim)) return; // THOSE SHEETS HAVE THEIR OWN CAPE BAKED IN
   const alpha = FX.dissolve ? 1 - dissolveAmount : 1; // FADE WITH THE BODY'S DISSOLVE
   if (alpha <= 0.02) return;
 
-  const C = CAPE_CLOTH;
   const P = cloth.p;
-  const n = P.length;
-  const dir = player.flipX ? -1 : 1;
   const r = clothRoot(); // PIN THE HEAD TO *THIS* FRAME'S FINAL COLLAR SO IT NEVER LAGS THE BODY
   P[0].x = r.x;
   P[0].y = r.y;
   if (CLOAK_DEBUG_MARKERS) k.drawCircle({ pos: k.vec2(r.x, r.y), radius: 3, color: k.rgb("#00ffff") });
 
+  capeDisOn = CAPE_DISSOLVE.enabled;
+  if (capeDisOn) { // FASTER = THE DISSOLVE CREEPS UP THE CAPE (SAME RULE AS capeLab.html's ghostStart())
+    const D = CAPE_DISSOLVE;
+    const U = capeDisU;
+    U.u_start = Math.max(0, Math.min(0.98, D.start - D.speed * Math.min(1.5, capeSpeed) * 0.5));
+    U.u_amt = D.amount;
+    U.u_cell = Math.max(2, D.cell);
+    U.u_edge = Math.max(0.01, D.edge);
+    U.u_flow = D.flow;
+    U.u_fade = D.fade;
+    U.u_glow = D.glow;
+    U.u_time = cloth.t;
+    U.u_len = (P.length - 1) * CAPE_CLOTH.segLen;
+    U.u_wid = (CAPE_CLOTH.w0 + CAPE_CLOTH.w1) / 2;
+  }
+
+  // IDLE IS TWO-LAYERED (SEE IDLE_CAPE): DARK LINING FIRST, SHIFTED TOWARD THE BACK EDGE, THEN THE
+  // NARROWER MAIN CAPE ON TOP. layer FADES WITH idleBlend, SO RUN-STYLE CAPE IS THE PLAIN SINGLE RIBBON.
+  const layer = IDLE_CAPE.layered ? Math.min(1, idleBlend + attackBlend) : 0; // IDLE AND CAST SHARE THE LINED LOOK
+  if (layer > 0.02) {
+    drawClothRibbon(P, 1.05, IDLE_CAPE.liningShift, LINING_RGB, LINING_EDGE_RGB, LINING_GLOW_RGB, alpha * layer, false);
+  }
+  drawClothRibbon(P, 1 + (IDLE_CAPE.topWidth - 1) * layer, 0, CAPE_RGB, CAPE_EDGE_RGB, CAPE_GLOW_RGB, alpha, true);
+}
+
+// ONE PASS OF THE RIBBON OVER THE CHAIN. wMul SCALES ITS WIDTH, shift SLIDES IT SIDEWAYS (FRACTION OF ITS
+// WIDTH, + = TOWARD THE BACK EDGE), rgb = COLLAR/MIDDLE/HEM COLORS, folds TOGGLES THE FOLD LINES.
+function drawClothRibbon(P, wMul, shift, rgb, edgeRgb, glowRgb, alpha, folds) {
+  const C = CAPE_CLOTH;
+  const n = P.length;
+  const dir = player.flipX ? -1 : 1;
+
   const pts = [];
   const cols = [];
+  const uvs = []; // (ACROSS, ALONG) 0..1 PER VERTEX - ONLY THE DISSOLVE SHADER READS THESE
   const left = [];
   const right = [];
   for (let i = 0; i < n; i++) {
@@ -1928,14 +2305,18 @@ function drawCloth() {
     const s = i / (n - 1);
     let w = C.w0 + (C.w1 - C.w0) * Math.pow(s, 0.8);
     w *= 1 + C.ripple * Math.min(1, capeSpeed + 0.3) * Math.sin(cloth.t * 8 - s * 7) * s;
-    const L = k.vec2(P[i].x + (nx * w) / 2, P[i].y + (ny * w) / 2);
-    const R = k.vec2(P[i].x - (nx * w) / 2, P[i].y - (ny * w) / 2);
+    const cx = P[i].x + nx * w * shift; // CENTERLINE, SLID SIDEWAYS FOR THE LINING LAYER (shift 0 = ON THE CHAIN)
+    const cy = P[i].y + ny * w * shift;
+    w *= wMul;
+    const L = k.vec2(cx + (nx * w) / 2, cy + (ny * w) / 2);
+    const R = k.vec2(cx - (nx * w) / 2, cy - (ny * w) / 2);
     left.push(L);
     right.push(R);
     pts.push(L, R);
+    if (capeDisOn) uvs.push(k.vec2(0, s), k.vec2(1, s));
     const c = s < 0.5
-      ? CAPE_RGB[0].lerp(CAPE_RGB[1], s * 2)
-      : CAPE_RGB[1].lerp(CAPE_RGB[2], (s - 0.5) * 2);
+      ? rgb[0].lerp(rgb[1], s * 2)
+      : rgb[1].lerp(rgb[2], (s - 0.5) * 2);
     cols.push(c, c);
   }
   const indices = [];
@@ -1943,17 +2324,35 @@ function drawCloth() {
     const a = i * 2;
     indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
   }
-  k.drawPolygon({ pts, indices, colors: cols, opacity: alpha });
+  k.drawPolygon({
+    pts, indices, colors: cols, opacity: alpha,
+    ...(capeDisOn ? { uv: uvs, shader: "capeDissolve", uniform: capeDisU } : {}),
+  });
+
+  // STROKED DETAIL (RIM, GLOW, FOLD LINES). WITH THE DISSOLVE ON THEY'RE DRAWN SEGMENT BY SEGMENT AND FADED
+  // OUT PAST THE DISSOLVE START, OTHERWISE THEY'D KEEP OUTLINING CLOTH THE SHADER HAS ALREADY EATEN.
+  const fadeAt = (i) => {
+    if (!capeDisOn) return 1;
+    const x = Math.min(1, Math.max(0, ((i + 0.5) / (n - 1) - capeDisU.u_start) / Math.max(0.001, CAPE_DISSOLVE.edgeFade)));
+    return 1 - x * x * (3 - 2 * x);
+  };
+  const stroke = (line, width, color, opacity) => {
+    if (!capeDisOn) { k.drawLines({ pts: line, width, color, opacity }); return; }
+    for (let i = 0; i < n - 1; i++) {
+      const f = fadeAt(i);
+      if (f * opacity > 0.01) k.drawLines({ pts: [line[i], line[i + 1]], width, color, opacity: opacity * f });
+    }
+  };
 
   // FOLD LINES + GLOWING HEM EDGES: CHEAP DETAIL THAT SELLS "CLOTH" ON A FLAT FILL
-  for (const f of [0.33, 0.66]) {
-    k.drawLines({ pts: left.map((l, i) => l.lerp(right[i], f)), width: 1.5, color: CAPE_EDGE_RGB, opacity: 0.22 * alpha });
+  if (folds) for (const f of [0.33, 0.66]) {
+    stroke(left.map((l, i) => l.lerp(right[i], f)), 1.5, edgeRgb, 0.22 * alpha);
   }
   for (const edge of [left, right]) {
-    k.drawLines({ pts: edge, width: 7, color: CAPE_GLOW_RGB, opacity: 0.16 * alpha });
-    k.drawLines({ pts: edge, width: 2, color: CAPE_EDGE_RGB, opacity: 0.9 * alpha });
+    stroke(edge, 7, glowRgb, 0.16 * alpha);
+    stroke(edge, 2, edgeRgb, 0.9 * alpha);
   }
-  k.drawLines({ pts: [left[n - 1], right[n - 1]], width: 2.5, color: CAPE_GLOW_RGB, opacity: 0.9 * alpha });
+  if (!capeDisOn) k.drawLines({ pts: [left[n - 1], right[n - 1]], width: 2.5, color: glowRgb, opacity: 0.9 * alpha }); // HEM CAP - THE DISSOLVE EATS THE HEM
 }
 
 /* ---------- DEBUG READOUT ----------
@@ -1967,12 +2366,13 @@ k.onUpdate(() => {
     `grounded: ${player.isGrounded()}\n` +
     `currentAnim: ${currentAnim}\n` +
     `sheet: ${player.sheet}  frame: ${player.frame}  lift: ${visualLift}  hOffset: ${wallSlideHOffset}\n` +
+    `sheet tweak ([ ] = size): scale ${sheetTweak(player.sheet).scale.toFixed(2)}  footGap: ${footGaps[player.sheet]?.[player.frame] ?? "-"}px  idleCape: ${idleBlend.toFixed(2)}\n` +
     `isAttacking: ${isAttacking}\n` +
     `touchingWall: ${touchingWall ? touchingWall.dir : "-"}  wallJumpLock: ${wallJumpLock.toFixed(2)}\n` +
     `vel.y: ${player.vel.y.toFixed(1)}\n` +
     `pos.y: ${player.pos.y.toFixed(1)}\n` +
     `squash: ${squash.x.toFixed(2)}, ${squash.y.toFixed(2)}  dash: ${dashTimer > 0 ? "ON" : dashCooldown > 0 ? "cooldown" : "ready"}  dissolve: ${dissolveAmount.toFixed(2)}  light: ${lightingOn ? "on" : "off"}\n` +
-    `cape (V): ${CAPE_MODES[capeMode]}  spring: ${capeSpring.a.toFixed(1)}deg`;
+    `cape (V): ${CAPE_MODES[capeMode]}  spring: ${capeSpring.a.toFixed(1)}deg  ghost tail (G): ${CAPE_DISSOLVE.enabled ? "on" : "off"}`;
 });
 
 /* ---------- BOOT ---------- */
