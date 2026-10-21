@@ -387,12 +387,29 @@ const LIGHT_AMBIENT_COLOR = "#170032";
 const LIGHT_GLOW = 0.1;             // how strongly lights tint the scene with their color
 const LIGHT_PLAYER = { radius: 520, color: "#c4b5fd", height: 70 }; // height = px above feet
 const LIGHT_SPELL = { radius: 320, color: "#ff69b4" };
-const LAMP_COLORS = ["#00ffff", "#ff69b4", "#ff6200", "#67FEBD", "#A55AFF"];
-const LAMP_FIRST_X = 350;            // x of the first neon lamp
-const LAMP_SPACING = 650;            // px between lamps
+const LAMP_COLORS = ["#ff6200", "#fecd39", "#ff9a9e", "#ff6200"]; // WARM FIRELIGHT (THE LAMPS ARE NOW TORCHES - SEE TORCH CONFIG)
+const LAMP_FIRST_X = 350;            // x of the first torch
+const LAMP_SPACING = 650;            // px between torches
 const LAMP_COUNT = 15;
-const LAMP_RADIUS = 400;             // light radius of each lamp
-const LAMP_POLE_H = 120;             // px the lamp orb sits above the ground
+const LAMP_RADIUS = 400;             // light radius of each torch
+
+/* ---------- TORCH CONFIG ----------
+   EACH "LAMP" IS NOW A TORCH SPRITE STANDING ON THE GROUND WITH AN ANIMATED FLAME ON TOP.
+     torch.png - ONE 83x310 IMAGE (STAFF WITH A GEM HEAD)
+     flame.png - 6 FRAMES, EACH 400x400, IN A SINGLE ROW
+   EVERYTHING HERE IS SAFE TO TWEAK LIVE (CHANGE, SAVE, RELOAD). */
+const TORCH_SRC = "assets/images/map/torch.png";
+const TORCH_W = 83;                  // SOURCE PX
+const TORCH_H = 310;
+const TORCH_SCALE = 0.6;             // ON-SCREEN SIZE (TORCH IS TORCH_H * TORCH_SCALE PX TALL)
+const FLAME_SRC = "assets/images/map/flame.png";
+const FLAME_FRAME_COUNT = 6;
+const FLAME_FPS = 9;                 // FLAME ANIMATION SPEED
+const FLAME_SCALE = 0.37;            // ON-SCREEN SIZE OF THE 400x400 FLAME FRAME
+const FLAME_BASE_FRAC = 0.78;        // HOW FAR DOWN THE 400px FRAME THE FLAME'S BASE SITS (0 = TOP, 1 = BOTTOM)
+const FLAME_CENTER_FRAC = 0.5;       // HOW FAR DOWN THE FRAME THE FLAME'S BODY CENTERS - THIS IS WHERE THE LIGHT SITS
+const TORCH_FLAME_Y = 42;            // PX (IN TORCH ART) BELOW THE TORCH'S TOP WHERE THE FLAME'S BASE SITS. RAISE TO SINK THE FLAME INTO THE HEAD
+const TORCH_Z = 3;                   // BEHIND THE PLAYER (10), IN FRONT OF THE LEVEL ART (1-2)
 
 /* ---------- LEVEL ART CONFIG ---------- */
 const TILES_SRC = "assets/images/map/tiles.png";      // 6 frames, 60x60px each
@@ -929,6 +946,8 @@ async function loadLevelSprites() {
   await k.loadSprite("tiles", TILES_SRC, { sliceX: TILE_FRAME_COUNT, sliceY: 1 });
   await k.loadSprite("ground", GROUND_SRC);
   await k.loadSprite("column", COLUMN_SRC, { sliceX: COLUMN_FRAME_COUNT, sliceY: 1 });
+  await k.loadSprite("torch", TORCH_SRC);
+  await k.loadSprite("flame", FLAME_SRC, { sliceX: FLAME_FRAME_COUNT, sliceY: 1 });
 }
 
 function makeRng(seed) { // TINY SEEDED PRNG (MULBERRY32) - STABLE "RANDOM" TILE PATTERN BETWEEN RELOADS
@@ -1738,19 +1757,40 @@ function lampFlicker(lamp) {
            + 0.02 * Math.sin(t * 27 + lamp.phase * 5.1);
 }
 
+// TORCH GEOMETRY (WORLD PX), SHARED BY THE DRAW CODE AND THE LIGHTING:
+//   torchTopY  - TOP OF THE TORCH ART (ITS BOTTOM SITS ON THE GROUND)
+//   flameBaseY - WHERE THE FLAME'S BASE LANDS ON THE TORCH HEAD
+//   flameLightY - CENTER OF THE FLAME'S BODY = WHERE THE LIGHT SOURCE IS
+const torchTopY = GROUND_Y - TORCH_H * TORCH_SCALE;
+const flameBaseY = torchTopY + TORCH_FLAME_Y * TORCH_SCALE;
+const flameLightY = flameBaseY - (FLAME_BASE_FRAC - FLAME_CENTER_FRAC) * 400 * FLAME_SCALE;
+
 function drawLamps() {
   const cam = k.getCamPos();
   const half = k.width() / 2 + 100;
-  const orbY = GROUND_Y - LAMP_POLE_H;
+  const t = k.time();
   for (const lamp of LAMPS) {
     if (Math.abs(lamp.x - cam.x) > half) continue; // OFF-SCREEN
+
+    // TORCH: BOTTOM-CENTER ANCHORED ON THE GROUND
+    k.drawSprite({
+      sprite: "torch",
+      pos: k.vec2(lamp.x, GROUND_Y),
+      anchor: "bot",
+      scale: TORCH_SCALE,
+    });
+
+    // FLAME: PER-TORCH TIME OFFSET SO THEY DON'T ALL FLICKER IN LOCKSTEP. ANCHOR IS THE FLAME'S BASE POINT
+    // (kaplay ANCHOR y RUNS -1 TOP .. +1 BOTTOM), SO THE BASE LANDS ON flameBaseY
+    const frame = Math.floor(t * FLAME_FPS + lamp.phase * 2) % FLAME_FRAME_COUNT;
     const f = lampFlicker(lamp);
-    const pos = k.vec2(lamp.x, orbY);
-    k.drawRect({ pos: k.vec2(lamp.x - 3, orbY), width: 6, height: LAMP_POLE_H, color: k.rgb("#37025a") });
-    k.drawCircle({ pos, radius: 34 * f, color: lamp.rgb, opacity: 0.10 });
-    k.drawCircle({ pos, radius: 20 * f, color: lamp.rgb, opacity: 0.22 });
-    k.drawCircle({ pos, radius: 11 * f, color: lamp.rgb, opacity: 0.95 });
-    k.drawCircle({ pos, radius: 5, color: k.rgb("#ffffff"), opacity: 0.9 });
+    k.drawSprite({
+      sprite: "flame",
+      frame,
+      pos: k.vec2(lamp.x, flameBaseY),
+      anchor: k.vec2(0, FLAME_BASE_FRAC * 2 - 1),
+      scale: FLAME_SCALE * (0.97 + 0.06 * (f - 0.9)), // TINY SWELL WITH THE LIGHT FLICKER
+    });
   }
 }
 
@@ -1789,7 +1829,7 @@ function updateLighting() {
   }
 
   // NEAREST ON-SCREEN LAMPS FILL THE REMAINING SLOTS
-  const orbY = GROUND_Y - LAMP_POLE_H;
+  const orbY = flameLightY; // LIGHT SITS AT THE CENTER OF THE FLAME
   const room = MAX_LIGHTS - lights.length;
   const near = LAMPS
     .filter((l) => Math.abs(l.x - cam.x) < W / 2 + LAMP_RADIUS)
@@ -2389,7 +2429,7 @@ spawnPlayer();
 k.add([k.z(PARTICLE_Z), { id: "particleLayer", draw: drawParticles }]);
 k.add([k.z(GHOST_Z), { id: "ghostLayer", draw: drawGhosts }]);
 k.add([k.z(GHOST_Z + 0.5), { id: "clothLayer", draw: drawCloth }]); // verlet cape: behind the body (10), in front of ghosts (9)
-k.add([k.z(3), { id: "lampLayer", draw: drawLamps }]); // BEHIND THE PLAYER (10), IN FRONT OF THE LEVEL ART (1-2)
+k.add([k.z(TORCH_Z), { id: "lampLayer", draw: drawLamps }]); // TORCHES + FLAMES: BEHIND THE PLAYER (10), IN FRONT OF THE LEVEL ART (1-2)
 lightOverlay = k.add([
   k.rect(k.width(), k.height()),
   k.pos(0, 0),
