@@ -393,6 +393,22 @@ const AIR_KICK = {
   shakeTime: 0.14,       // CAMERA SHAKE (THE GROUND KICK'S IS KICK_SHAKE_DURATION / KICK_SHAKE_STRENGTH)
   shakeStrength: 8,
   hitStop: 0.06,         // SECONDS THE WHOLE GAME FREEZES ON THE IMPACT FRAME (GROUND KICK: HITSTOP_KICK)
+  // ---- AFTERIMAGES: SAME LOOK AS THE DOUBLE JUMP'S SPIRAL GHOSTS (ALTERNATING FLAT NEON SILHOUETTES + DISSOLVING COPIES) ----
+  ghosts: true,          // false = NO TRAIL
+  ghostInterval: 0.016,  // SECONDS BETWEEN AFTERIMAGES
+  ghostLife: 0.4,        // SECONDS EACH ONE LIVES
+  ghostAlpha: 0.6,       // STARTING OPACITY
+  ghostDrift: 160,       // PX/S THEY SLIDE BACK AGAINST THE LUNGE, EASING OFF (0 = THEY HANG WHERE THEY WERE LEFT)
+  ghostDrag: 3,          // PER-SECOND SLOWDOWN OF THAT DRIFT
+  ghostGrow: 0.15,       // EXTRA SIZE THEY BLOOM TO OVER THEIR LIFE
+  ghostCell: 26,         // NOISE BLOB SIZE OF THE DISSOLVING COPIES, IN SPRITE PX (DOUBLE JUMP USES DOUBLE_JUMP.ghostCell)
+  // ---- IMPACT MOTES: A FAN OF GLOWING MOTES (THE DOUBLE JUMP'S PALETTE) SHOT FORWARD FROM THE KICK ON THE IMPACT FRAME ----
+  burst: 16,             // 0 = NONE
+  burstSpeed: [200, 520],// PX/S (MIN, MAX)
+  burstSpread: 70,       // DEGREES EITHER SIDE OF STRAIGHT FORWARD
+  burstLife: [0.3, 0.55],
+  burstSize: [3, 6],
+  burstOffset: { x: 70, y: -150 }, // WHERE THE FAN STARTS, IN ART PX FROM THE FEET (x IN FACING DIRECTION, y UP IS NEGATIVE)
 };
 const IDLE_FPS = 6;// 6 FRAMES AT 6 FPS = ONE BREATH PER SECOND. LOWER = SLOWER, CALMER
 const PLAYER_ANIMS = {
@@ -730,7 +746,7 @@ let dashDir = 1;            // +1 right / -1 left, locked in when the dash start
 let airDashReady = true;    // one dash per airtime; refilled on landing / wall contact
 let airJumpReady = true;    // one double jump per airtime; refilled on landing / wall contact (SEE DOUBLE_JUMP)
 let airKickReady = true;    // one air kick per airtime (WHEN AIR_KICK.oncePerAirtime); refilled on landing
-const airKick = { t: 0, dir: 1, hit: false }; // t = SECONDS LEFT (0 = NOT KICKING), dir = LUNGE DIRECTION LOCKED AT THE START, hit = IMPACT FRAME ALREADY FIRED
+const airKick = { t: 0, dir: 1, hit: false, ghostAcc: 0, ghostN: 0 }; // t = SECONDS LEFT (0 = NOT KICKING), dir = LUNGE DIRECTION LOCKED AT THE START, hit = IMPACT FRAME ALREADY FIRED
 let jumpStartTimer = 0;     // seconds the jump sheet's START frame is still showing after takeoff (SEE JUMP_START_TIME)
 let landTimer = 0;          // seconds the LAND frame is still showing after touching down (SEE JUMP_LAND_TIME)
 let wasAirborne = false;    // LAST FRAME'S !grounded, SO THE MAIN LOOP CAN SPOT THE MOMENT OF TOUCHDOWN
@@ -1345,6 +1361,8 @@ function playAirKick() {
   airKick.t = A.holdTime;
   airKick.dir = player.flipX ? -1 : 1;
   airKick.hit = false;
+  airKick.ghostAcc = A.ghostInterval; // FIRST AFTERIMAGE RIGHT AWAY
+  airKick.ghostN = 0;
   player.vel.y *= A.vyKeep;      // KILL MOST OF THE VERTICAL SPEED, UP OR DOWN
   player.gravityScale = A.gravityScale;
   kickSquash(A.squash.x, A.squash.y);
@@ -1375,9 +1393,71 @@ function updateAirKick(dt) {
     airKick.hit = true;
     shakeCamera(A.shakeTime, A.shakeStrength);
     hitStop(A.hitStop);
+    spawnAirKickBurst();
+  }
+  if (A.ghosts) {
+    airKick.ghostAcc += dt;
+    while (airKick.ghostAcc >= A.ghostInterval) {
+      airKick.ghostAcc -= A.ghostInterval;
+      spawnAirKickGhost();
+    }
   }
   airKick.t -= dt;
   if (airKick.t <= 0) end();
+}
+
+// ONE AFTERIMAGE OF THE CURRENT KICK FRAME. EVERY OTHER ONE IS A DISSOLVING COPY (SAME NOISE SHADER AS THE SPAWN DISSOLVE),
+// THE REST FLAT NEON SILHOUETTES LIKE THE DASH TRAIL. THEY REUSE THE DOUBLE JUMP'S SPIRAL-GHOST DRAW + DRIFT CODE (stepGhosts /
+// drawSpiralGhost), JUST WITH NO ROTATION, AND SLIDE BACK AGAINST THE LUNGE SO THE SMEAR LEAVES A WAKE.
+function spawnAirKickGhost() {
+  const A = AIR_KICK;
+  const dissolve = airKick.ghostN++ % 2 === 1;
+  const color = GHOST_RGB[ghostColorIdx++ % GHOST_RGB.length];
+  let u;
+  if (dissolve) {
+    u = dissolveUniform(sheetSprite("airKick"), player.frame);
+    u.u_cell = A.ghostCell;
+  } else {
+    u = { u_color: color, u_alpha: A.ghostAlpha };
+  }
+  ghosts.push({
+    x: player.pos.x,
+    y: player.pos.y,
+    sx: squash.x,
+    sy: squash.y,
+    sheet: "airKick",
+    frame: player.frame,
+    flip: player.flipX,
+    age: 0,
+    life: A.ghostLife,
+    color,
+    ang: 0,
+    angVel: 0,
+    vx: -airKick.dir * A.ghostDrift,
+    vy: 0,
+    drag: A.ghostDrag,
+    grow: A.ghostGrow,
+    alpha: A.ghostAlpha,
+    mode: dissolve ? "dissolve" : "tint",
+    u,
+  });
+}
+
+// FAN OF MOTES SHOT FORWARD FROM THE KICK ON THE IMPACT FRAME (SAME MOTES + PALETTE AS THE DOUBLE JUMP'S SPIRAL)
+function spawnAirKickBurst() {
+  const A = AIR_KICK;
+  const x = player.pos.x + airKick.dir * A.burstOffset.x * SCALE;
+  const y = player.pos.y + A.burstOffset.y * SCALE;
+  for (let i = 0; i < A.burst; i++) {
+    const th = ((rnd(-1, 1) * A.burstSpread) * Math.PI) / 180;
+    const sp = rnd(A.burstSpeed[0], A.burstSpeed[1]);
+    spawnTrail(x, y, airKick.dir * Math.cos(th) * sp, Math.sin(th) * sp, {
+      color: DJ_MOTE_RGB[i % DJ_MOTE_RGB.length],
+      life: rnd(A.burstLife[0], A.burstLife[1]),
+      size: rnd(A.burstSize[0], A.burstSize[1]),
+      drag: DOUBLE_JUMP.moteDrag,
+    });
+  }
 }
 
 /* ---------- WALL CONTACT TRACKING ----------
