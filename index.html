@@ -42,6 +42,7 @@ const PLAYER_SHEETS = {
   wall_slide: { src: "assets/images/wall_slide.png", frames: 1 },
   attack:     { src: "assets/images/attack.png",     frames: 1 }, // spell cast - ONE 400x400 FRAME, NO CAPE DRAWN (VERLET CAPE ADDED IN CODE, SEE ATTACK_CAPE)
   kick:       { src: "assets/images/kick.png",       frames: 6 }, // melee kick - cape baked in
+  airKick:    { src: "assets/images/airKick.png",    frames: 8 }, // MID-AIR KICK (X WHILE AIRBORNE, SEE AIR_KICK) - SMEAR FRAMES, CAPE BAKED IN. 0-3 WIND-UP, 4-6 FULLY EXTENDED KICK, 7 RECOIL
 };
 const RUN = { from: 0, to: 7 };   // FRAMES INSIDE THE RUN SHEET
 
@@ -122,7 +123,7 @@ const RUN_CYCLE = RUN_POSE_ORDER.map((pose, i) => ({
 }));
 
 /* ---------- CLOAK OVERLAY CONFIG ----------
-   attack AND attackKick HAVE THE CAPE BAKED INTO THEIR SHEETS, SO THE OVERLAY
+   attack, attackKick AND airKick HAVE THE CAPE BAKED INTO THEIR SHEETS, SO THE OVERLAY
    SKIPS THEM. idle AND wallSlide HAVE NO CAPE AT ALL YET (LEFT AS-IS FOR NOW) -
    THEY SKIP THE OVERLAY TOO. SO IT ONLY COVERS run (SEE CAPE_BAKED_ANIMS).
    (idle NOW HAS A CAPE TOO, BUT A VERLET ONE - SEE IDLE_CAPE - NOT THIS OVERLAY. SAME FOR THE
@@ -155,11 +156,11 @@ const CLOAK_POSE = {
 // INTO THE SHEET, OR NONE IS DRAWN. idle IS HERE ON PURPOSE: ITS CAPE IS THE VERLET ONE
 // (SEE IDLE_CAPE) IN EVERY CAPE MODE, NOT THE 4-FRAME WIND-LOOP ART. THE JUMP SHEET'S FRAMES ARE HERE
 // FOR THE SAME REASON (VERLET CAPE - SEE JUMP_CAPE - EXCEPT doubleJump, WHICH HAS ITS CAPE DRAWN IN).
-const CAPE_BAKED_ANIMS = new Set(["idle", "attack", "attackKick", "wallSlide", "jumpStart", "jump", "doubleJump", "fall", "land"]);
+const CAPE_BAKED_ANIMS = new Set(["idle", "attack", "attackKick", "airKick", "wallSlide", "jumpStart", "jump", "doubleJump", "fall", "land"]);
 // ANIMS THE VERLET CAPE DOESN'T DRAW OVER (idle AND attack AREN'T LISTED - THAT'S THE POINT OF
-// IDLE_CAPE / ATTACK_CAPE: THEY GET THE VERLET CAPE IN EVERY CAPE MODE). doubleJump IS THE FLIP FRAME,
-// WHOSE SMEARED CAPE IS PART OF THE ART.
-const CAPE_VERLET_SKIP_ANIMS = new Set(["attackKick", "wallSlide", "doubleJump"]);
+// IDLE_CAPE / ATTACK_CAPE: THEY GET THE VERLET CAPE IN EVERY CAPE MODE). doubleJump IS THE FLIP FRAME AND
+// airKick THE AIR KICK'S SMEAR FRAMES - BOTH HAVE THEIR CAPE SMEARED INTO THE ART.
+const CAPE_VERLET_SKIP_ANIMS = new Set(["attackKick", "airKick", "wallSlide", "doubleJump"]);
 
 // DRAWS A DOT AT EACH CLOAK'S ATTACH POINT - HELPS WHILE DIALING IN
 // CLOAK_POSE x/y ABOVE.
@@ -372,6 +373,27 @@ const SPELL_FORWARD_OFFSET = 40; // extra px in front of player beyond half widt
    WHERE THE TIME GOES. FRAMES 0 AND 4 (WIND-UP / IMPACT) LINGER, THE REST SNAP BY.
    1 EVERYWHERE = EVEN TIMING. TUNE LIVE: RAISE A NUMBER TO HOLD THAT FRAME LONGER. */
 const KICK_FRAME_HOLDS = [1.3, 0.4, 0.3, 0.4, 2.7, 0.3];
+
+/* ---------- AIR KICK ----------
+   X WHILE AIRBORNE PLAYS airKick.png (8 SMEAR FRAMES, CAPE DRAWN INTO THE ART, SO NO VERLET CAPE) INSTEAD OF THE GROUND KICK.
+   THE FRAMES ALL PLAY FAST, THE FULLY EXTENDED ONES (4-6) LINGER A TEENY BIT. THE TOTAL TIME IS THE MOVEMENT LOCK, LIKE
+   ATTACK_KICK_HOLD_TIME. WHILE IT PLAYS YOU LUNGE FORWARD AND FLOAT (GRAVITY IS SCALED DOWN) SO IT READS AS A FLYING KICK,
+   AND THE CAMERA SHAKE + HIT-STOP LAND ON THE FIRST FULLY EXTENDED FRAME INSTEAD OF THE FIRST FRAME. LANDING CUTS IT SHORT.
+   EVERY NUMBER IS SAFE TO TWEAK LIVE. enabled: false = X IN THE AIR PLAYS THE GROUND KICK LIKE BEFORE. */
+const AIR_KICK = {
+  enabled: true,
+  holdTime: 0.32,        // SECONDS FOR ALL 8 FRAMES (SPLIT BY holds BELOW)
+  holds: [1, 1, 1, 1, 1.4, 1.4, 1.4, 1], // RELATIVE HOLD PER FRAME. 1 EVERYWHERE = EVEN. RAISE A NUMBER TO LINGER ON THAT FRAME
+  oncePerAirtime: true,  // ONE AIR KICK PER JUMP (REFILLED ON LANDING) SO IT CAN'T BE CHAINED TO HOVER. false = SPAM IT
+  lunge: 520,            // PX/S FORWARD, EASING OUT OVER THE KICK (JUMP / MOVE_SPEED IS 650)
+  gravityScale: 0.3,     // GRAVITY WHILE KICKING (1 = NORMAL, 0 = FLOATS)
+  vyKeep: 0.25,          // FRACTION OF THE CURRENT vel.y (UP OR DOWN) KEPT WHEN THE KICK STARTS - STOPS A KICK ON THE WAY UP BOOSTING YOUR HEIGHT, AND ONE ON THE WAY DOWN NOSE-DIVING
+  squash: { x: 1.1, y: 0.92 },   // QUICK STRETCH-FORWARD POP ON THE KICK START
+  impactFrame: 4,        // THE FRAME WHERE THE KICK "CONNECTS": SHAKE + HIT-STOP FIRE WHEN IT'S REACHED
+  shakeTime: 0.14,       // CAMERA SHAKE (THE GROUND KICK'S IS KICK_SHAKE_DURATION / KICK_SHAKE_STRENGTH)
+  shakeStrength: 8,
+  hitStop: 0.06,         // SECONDS THE WHOLE GAME FREEZES ON THE IMPACT FRAME (GROUND KICK: HITSTOP_KICK)
+};
 const IDLE_FPS = 6;// 6 FRAMES AT 6 FPS = ONE BREATH PER SECOND. LOWER = SLOWER, CALMER
 const PLAYER_ANIMS = {
   idle:       { sheet: "idle",       from: 0, to: PLAYER_SHEETS.idle.frames - 1, fps: IDLE_FPS, loop: true },
@@ -384,6 +406,7 @@ const PLAYER_ANIMS = {
   wallSlide:  { sheet: "wall_slide", from: 0, to: 0 },
   attack:     { sheet: "attack",     from: 0, to: PLAYER_SHEETS.attack.frames - 1, duration: ATTACK_HOLD_TIME },
   attackKick: { sheet: "kick",       from: 0, to: PLAYER_SHEETS.kick.frames - 1, duration: ATTACK_KICK_HOLD_TIME, holds: KICK_FRAME_HOLDS },
+  airKick:    { sheet: "airKick",    from: 0, to: PLAYER_SHEETS.airKick.frames - 1, duration: AIR_KICK.holdTime, holds: AIR_KICK.holds },
 };
 
 /* ---------- KICK SWOOSH CONFIG ----------
@@ -706,6 +729,8 @@ let dashCooldown = 0;       // seconds until another dash is allowed
 let dashDir = 1;            // +1 right / -1 left, locked in when the dash starts
 let airDashReady = true;    // one dash per airtime; refilled on landing / wall contact
 let airJumpReady = true;    // one double jump per airtime; refilled on landing / wall contact (SEE DOUBLE_JUMP)
+let airKickReady = true;    // one air kick per airtime (WHEN AIR_KICK.oncePerAirtime); refilled on landing
+const airKick = { t: 0, dir: 1, hit: false }; // t = SECONDS LEFT (0 = NOT KICKING), dir = LUNGE DIRECTION LOCKED AT THE START, hit = IMPACT FRAME ALREADY FIRED
 let jumpStartTimer = 0;     // seconds the jump sheet's START frame is still showing after takeoff (SEE JUMP_START_TIME)
 let landTimer = 0;          // seconds the LAND frame is still showing after touching down (SEE JUMP_LAND_TIME)
 let wasAirborne = false;    // LAST FRAME'S !grounded, SO THE MAIN LOOP CAN SPOT THE MOMENT OF TOUCHDOWN
@@ -1295,6 +1320,66 @@ function playKickAttack() {
   });
 }
 
+// X: ON THE GROUND = THE KICK, IN THE AIR = THE AIR KICK (SEE AIR_KICK). WITH AIR_KICK.enabled OFF IT'S THE OLD BEHAVIOUR (GROUND KICK EVERYWHERE)
+function pressKick() {
+  if (!player || isAttacking) return;
+  if (player.isGrounded() || !AIR_KICK.enabled) {
+    playKickAttack();
+    return;
+  }
+  if (AIR_KICK.oncePerAirtime && !airKickReady) return; // ALREADY USED THIS JUMP
+  playAirKick();
+}
+
+function playAirKick() {
+  const A = AIR_KICK;
+  isAttacking = true;
+  airKickReady = false;
+  dashTimer = 0;                 // ATTACKING CANCELS A DASH IN PROGRESS
+  jumpStartTimer = 0;
+  landTimer = 0;
+  wallSlideHOffset = 0;          // KICKING OFF A WALL SLIDE SHOULDN'T KEEP ITS SIDEWAYS ART NUDGE
+  currentAnim = "airKick";       // (ALSO CUTS A DOUBLE JUMP'S SPIN SHORT - updateDoubleJump SEES THE ANIM CHANGE)
+  visualLift = 0;
+  player.play("airKick");
+  airKick.t = A.holdTime;
+  airKick.dir = player.flipX ? -1 : 1;
+  airKick.hit = false;
+  player.vel.y *= A.vyKeep;      // KILL MOST OF THE VERTICAL SPEED, UP OR DOWN
+  player.gravityScale = A.gravityScale;
+  kickSquash(A.squash.x, A.squash.y);
+}
+
+// RUNS IN THE ALWAYS-ON LOOP (THE MAIN ONE IS SKIPPED WHILE isAttacking): LUNGE, IMPACT-FRAME FX, AND ENDING THE KICK
+function updateAirKick(dt) {
+  const A = AIR_KICK;
+  if (airKick.t <= 0) return;
+  const end = () => {
+    airKick.t = 0;
+    isAttacking = false;
+    if (player) player.gravityScale = 1;
+  };
+  if (!player || currentAnim !== "airKick") { // RESPAWNED / SOMETHING ELSE TOOK OVER
+    airKick.t = 0;
+    if (player) player.gravityScale = 1;
+    return;
+  }
+  if (player.isGrounded()) { // TOUCHED DOWN MID-KICK: THE AIR SMEAR WOULD LOOK WRONG ON THE GROUND, SO STOP
+    end();
+    return;
+  }
+  if (dt <= 0) return; // HIT-STOP FREEZE
+  const u = 1 - airKick.t / A.holdTime; // 0 -> 1 OVER THE KICK
+  player.move(airKick.dir * A.lunge * (1 - u * u), 0);
+  if (!airKick.hit && player.frame >= A.impactFrame) {
+    airKick.hit = true;
+    shakeCamera(A.shakeTime, A.shakeStrength);
+    hitStop(A.hitStop);
+  }
+  airKick.t -= dt;
+  if (airKick.t <= 0) end();
+}
+
 /* ---------- WALL CONTACT TRACKING ----------
    touchingWall IS KEPT UP TO DATE BY THESE TWO COLLIDE HANDLERS RATHER THAN
    COMPUTED INLINE IN THE MAIN UPDATE LOOP, SINCE onCollideUpdate ONLY FIRES
@@ -1359,6 +1444,7 @@ k.onUpdate(() => {
     airDashReady = true;
     airJumpReady = true;
   }
+  if (grounded) airKickReady = true; // THE AIR KICK ONLY REFILLS ON THE GROUND (NOT WALLS), SO IT CAN'T BE CHAINED ALONG A WALL TO HOVER
 
   // WALL-SLIDE ONLY ENGAGES AIRBORNE, MID-LOCK-FREE, TOUCHING A WALL,
   // AND HOLDING THE DIRECTION KEY PRESSING INTO IT (CLASSIC CLING - LET
@@ -1460,7 +1546,7 @@ k.onKeyPress("z", () => {
 });
 
 k.onKeyPress("x", () => {
-  playKickAttack();
+  pressKick();
 });
 
 k.onKeyPress("r", () => {
@@ -1659,6 +1745,7 @@ k.onUpdate(() => {
   const dt = k.dt();
   updateCloakAnim(dt);
   updateDoubleJump(dt); // BEFORE THE EMITTERS / GHOSTS BELOW SO THIS FRAME'S SPIRAL SHOWS UP THIS FRAME
+  updateAirKick(dt);
   updateParticleEmitters(dt);
   stepParticles(dt);
   updateSquash(dt);
@@ -2079,6 +2166,8 @@ function resetEffectState() {
   dashCooldown = 0;
   airDashReady = true;
   airJumpReady = true;
+  airKickReady = true;
+  airKick.t = 0;
   jumpStartTimer = 0;
   landTimer = 0;
   wasAirborne = false;
@@ -2796,7 +2885,7 @@ k.onUpdate(() => {
     `touchingWall: ${touchingWall ? touchingWall.dir : "-"}  wallJumpLock: ${wallJumpLock.toFixed(2)}\n` +
     `vel.y: ${player.vel.y.toFixed(1)}\n` +
     `pos.y: ${player.pos.y.toFixed(1)}\n` +
-    `air jump: ${airJumpReady ? "ready" : "used"}  flip: ${doubleJump.t > 0 ? doubleJump.angle.toFixed(0) + "deg" : "-"}  jumpStart: ${Math.max(0, jumpStartTimer).toFixed(2)}  land: ${Math.max(0, landTimer).toFixed(2)}\n` +
+    `air kick: ${airKick.t > 0 ? airKick.t.toFixed(2) + "s" : airKickReady ? "ready" : "used"}  air jump: ${airJumpReady ? "ready" : "used"}  flip: ${doubleJump.t > 0 ? doubleJump.angle.toFixed(0) + "deg" : "-"}  jumpStart: ${Math.max(0, jumpStartTimer).toFixed(2)}  land: ${Math.max(0, landTimer).toFixed(2)}\n` +
     `squash: ${squash.x.toFixed(2)}, ${squash.y.toFixed(2)}  dash: ${dashTimer > 0 ? "ON" : dashCooldown > 0 ? "cooldown" : "ready"}  dissolve: ${dissolveAmount.toFixed(2)}  light: ${lightingOn ? "on" : "off"}\n` +
     `cape (V): ${CAPE_MODES[capeMode]}  spring: ${capeSpring.a.toFixed(1)}deg  ghost tail (G): ${CAPE_DISSOLVE.enabled ? "on" : "off"}`;
 });
