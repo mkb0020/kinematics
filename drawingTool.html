@@ -112,6 +112,7 @@ header .tb.hb svg{width:16px;height:16px}
 #world>*{position:absolute;left:0;top:0;width:1000px;height:1000px}
 #paper{background:#fff;box-shadow:0 0 0 1px var(--acc2),0 0 40px #830cde88,0 0 90px #00ffff22}
 #view,#overlay,#onion{pointer-events:none}
+#world.pixview canvas{image-rendering:pixelated}
 #cursor{position:absolute;pointer-events:none;border:1.5px solid #000;border-radius:50%;
   box-shadow:0 0 0 1px #fff;transform:translate(-50%,-50%);display:none;z-index:4}
 #cursor.erase{border-color:var(--pk)}
@@ -257,6 +258,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
     <button class="tb hb" id="fitBtn" data-tip="Fit canvas to screen (0)"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
     <span class="hsep"></span>
     <select id="brushSel" class="hsel" aria-label="Brush type" data-tip="Brush type: fine tip (size 1-10) or thick brush (10-100). Press B again to switch"><option value="pen">Fine tip</option><option value="brush">Thick brush</option></select>
+    <select id="modeSel" class="hsel" aria-label="Draw mode" data-tip="Draw mode: Smooth = soft anti-aliased edges. Crisp = hard pixels, no grey edge pixels (M toggles). Applies to brush, eraser, line, rect and circle"><option value="smooth">Smooth</option><option value="crisp">Crisp</option></select>
     <label class="hsize" data-tip="Brush size ( [ and ] keys )"><span>SIZE</span><input type="range" id="size" min="1" max="10" value="2"><output id="sizeOut">2</output></label>
     <span class="hsep"></span>
     <button class="tb hb" id="undoBtn" data-tip="Undo (Ctrl+Z)" disabled><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
@@ -397,7 +399,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 
   <div id="helpMenu" class="popmenu wide" hidden>
     <h2>Shortcuts</h2>
-    <div class="keys"><div><span>B</span> brush / switch type</div><div><span>E</span> eraser</div><div><span>L</span> line</div><div><span>R</span> rect</div><div><span>C</span> circle</div><div><span>G</span> fill</div><div><span>U</span> blur</div><div><span>V</span> move layer</div><div><span>H</span> pan</div><div><span>T</span> outline / filled</div><div><span>[ ]</span> brush size</div><div><span>+ -</span> zoom</div><div><span>0</span> fit canvas</div><div><span>O</span> onion skin</div><div><span>N</span> new frame</div><div><span>D</span> duplicate frame</div><div><span>Del</span> delete frame</div><div><span>P</span> play / pause</div><div><span>, .</span> prev / next</div><div><span>&lt; &gt;</span> frame hold -/+</div><div><span>Enter</span> finish line</div><div><span>Esc</span> cancel</div><div><span>Shift</span> 45&deg; / square</div><div><span>Alt</span> from center</div><div><span>Arrows</span> nudge (Move)</div><div><span>Shift+Arrows</span> nudge 10px</div><div><span>Shift+H</span> flip horizontal</div><div><span>Shift+V</span> flip vertical</div><div><span>Ctrl+Z</span> undo</div><div><span>Ctrl+Shift+Z</span> redo</div><div><span>Tab</span> hide / show bars</div><div><span>?</span> this list</div><div><span>Wheel</span> zoom</div><div><span>Space+drag</span> pan</div><div><span>2 fingers</span> pan / pinch</div></div>
+    <div class="keys"><div><span>B</span> brush / switch type</div><div><span>M</span> smooth / crisp draw mode</div><div><span>E</span> eraser</div><div><span>L</span> line</div><div><span>R</span> rect</div><div><span>C</span> circle</div><div><span>G</span> fill</div><div><span>U</span> blur</div><div><span>V</span> move layer</div><div><span>H</span> pan</div><div><span>T</span> outline / filled</div><div><span>[ ]</span> brush size</div><div><span>+ -</span> zoom</div><div><span>0</span> fit canvas</div><div><span>O</span> onion skin</div><div><span>N</span> new frame</div><div><span>D</span> duplicate frame</div><div><span>Del</span> delete frame</div><div><span>P</span> play / pause</div><div><span>, .</span> prev / next</div><div><span>&lt; &gt;</span> frame hold -/+</div><div><span>Enter</span> finish line</div><div><span>Esc</span> cancel</div><div><span>Shift</span> 45&deg; / square</div><div><span>Alt</span> from center</div><div><span>Arrows</span> nudge (Move)</div><div><span>Shift+Arrows</span> nudge 10px</div><div><span>Shift+H</span> flip horizontal</div><div><span>Shift+V</span> flip vertical</div><div><span>Ctrl+Z</span> undo</div><div><span>Ctrl+Shift+Z</span> redo</div><div><span>Tab</span> hide / show bars</div><div><span>?</span> this list</div><div><span>Wheel</span> zoom</div><div><span>Space+drag</span> pan</div><div><span>2 fingers</span> pan / pinch</div></div>
   </div>
 
   <aside id="panel">
@@ -943,7 +945,99 @@ const Engine = (() => {
     ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
   }
 
+  /* CRISP MODE (style.crisp): draws on the pixel grid with no anti-aliasing, so every pixel is either fully
+     painted or untouched (the eraser fully clears or leaves alone). A brush stamp is a pixel disk, stamps are
+     joined with Bresenham, and each call is filled as ONE path of whole-pixel rects, so edges never blend. */
+  const diskCache = new Map();
+  function diskRows(n) {                       // rows of an n-wide disk as [row, firstPixel, lastPixel]
+    let rows = diskCache.get(n);
+    if (rows) return rows;
+    rows = []; const r2 = (n / 2) * (n / 2) + 1e-6;
+    for (let j = 0; j < n; j++) {
+      const dy = j + 0.5 - n / 2; let a = -1, b = -1;
+      for (let i = 0; i < n; i++) { const dx = i + 0.5 - n / 2; if (dx * dx + dy * dy <= r2) { if (a < 0) a = i; b = i; } }
+      if (a >= 0) rows.push([j, a, b]);
+    }
+    diskCache.set(n, rows); return rows;
+  }
+  const crispN = s => Math.max(1, Math.round(s.size));
+  // Top-left pixel of the stamp for a pointer position: odd sizes center on a pixel, even sizes on a grid corner.
+  function crispCorner(p, n) {
+    const h = n / 2;
+    return n % 2 ? { x: Math.floor(p.x) + 0.5 - h, y: Math.floor(p.y) + 0.5 - h } : { x: Math.round(p.x) - h, y: Math.round(p.y) - h };
+  }
+  function crispFill(ctx, s, build) {
+    ctx.save(); ctx.fillStyle = s.erase ? '#000' : s.color;
+    ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
+    ctx.beginPath(); build(ctx); ctx.fill(); ctx.restore();
+  }
+  // Stamp the brush disk at every pixel step along the polyline pts (canvas px).
+  function crispPoly(ctx, pts, s, edit) {
+    const n = crispN(s), rows = diskRows(n);
+    crispFill(ctx, s, c => {
+      const stamp = (x, y) => { for (const [j, a, b] of rows) c.rect(x + a, y + j, b - a + 1, 1); };
+      let prev = null;
+      for (const p of pts) {
+        const q = crispCorner(p, n);
+        if (!prev) stamp(q.x, q.y);
+        else {
+          let x = prev.x, y = prev.y;
+          const dx = Math.abs(q.x - x), dy = -Math.abs(q.y - y), sx = x < q.x ? 1 : -1, sy = y < q.y ? 1 : -1;
+          let err = dx + dy;
+          while (x !== q.x || y !== q.y) {
+            const e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x += sx; }
+            if (e2 <= dx) { err += dx; y += sy; }
+            stamp(x, y);
+          }
+        }
+        prev = q;
+      }
+    });
+    if (edit) for (const p of pts) edit.touch(p.x, p.y, n / 2 + 2);
+  }
+  // Points about 1px apart along the quadratic curve a -> b with control point c.
+  function flattenQuad(a, c, b) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(c.x - a.x, c.y - a.y) + Math.hypot(b.x - c.x, b.y - c.y))), out = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps, u = 1 - t;
+      out.push({ x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y });
+    }
+    return out;
+  }
+  function crispShape(ctx, kind, box, s, filled, edit) {
+    const x = Math.min(box.x0, box.x1), y = Math.min(box.y0, box.y1);
+    const w = Math.abs(box.x1 - box.x0), h = Math.abs(box.y1 - box.y0);
+    const t = crispN(s);
+    if (kind === 'rect') {
+      const x0 = Math.round(x), y0 = Math.round(y), x1 = Math.round(x + w), y1 = Math.round(y + h);
+      crispFill(ctx, s, c => {
+        if (filled) { c.rect(x0, y0, x1 - x0, y1 - y0); return; }
+        const o = Math.floor(t / 2), W = x1 - x0 + t, H = y1 - y0 + t;     // four bars centered on the edges, square corners
+        c.rect(x0 - o, y0 - o, W, t); c.rect(x0 - o, y1 - o, W, t);
+        c.rect(x0 - o, y0 - o, t, H); c.rect(x1 - o, y0 - o, t, H);
+      });
+    } else {
+      const cx = x + w / 2, cy = y + h / 2, rx = w / 2, ry = h / 2;
+      if (!filled) {
+        const per = Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry))), N = Math.max(8, Math.ceil(per)), pts = [];
+        for (let i = 0; i <= N; i++) { const a = i / N * Math.PI * 2; pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry }); }
+        crispPoly(ctx, pts, s, edit); return;
+      }
+      crispFill(ctx, s, c => {                                             // a pixel is in if its center is inside the ellipse
+        if (rx <= 0 || ry <= 0) return;
+        for (let j = Math.floor(cy - ry); j <= Math.ceil(cy + ry); j++) {
+          const dy = (j + 0.5 - cy) / ry; if (Math.abs(dy) > 1) continue;
+          const dx = rx * Math.sqrt(1 - dy * dy), a = Math.ceil(cx - dx - 0.5), b = Math.floor(cx + dx - 0.5);
+          if (b >= a) c.rect(a, j, b - a + 1, 1);
+        }
+      });
+    }
+    if (edit) { const r = filled ? 2 : t * 0.75 + 2; edit.touch(x, y, r); edit.touch(x + w, y + h, r); }
+  }
+
   function drawDot(ctx, p, s, edit) {
+    if (s.crisp) { crispPoly(ctx, [p], s, edit); return; }
     ctx.save(); setStyle(ctx, s);
     ctx.beginPath(); ctx.arc(p.x, p.y, s.size / 2, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
@@ -951,6 +1045,7 @@ const Engine = (() => {
   }
 
   function drawSegment(ctx, a, b, s, edit) {
+    if (s.crisp) { crispPoly(ctx, [a, b], s, edit); return; }
     ctx.save(); setStyle(ctx, s);
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     ctx.restore();
@@ -967,6 +1062,10 @@ const Engine = (() => {
       if (Math.hypot(p.x - last.x, p.y - last.y) < 1) return false;
       this.pts.push(p);
       const mid = { x: (last.x + p.x) / 2, y: (last.y + p.y) / 2 };
+      if (this.s.crisp) {                         // same smoothed path, stamped onto the pixel grid
+        crispPoly(this.ctx, flattenQuad(this.lastMid, last, mid), this.s, this.edit);
+        this.lastMid = mid; return true;
+      }
       const c = this.ctx; c.save(); setStyle(c, this.s);
       c.beginPath(); c.moveTo(this.lastMid.x, this.lastMid.y);
       c.quadraticCurveTo(last.x, last.y, mid.x, mid.y); c.stroke(); c.restore();
@@ -983,6 +1082,7 @@ const Engine = (() => {
 
   // Rectangle or ellipse inside a box {x0,y0,x1,y1}. Outline uses the brush size as line width.
   function drawShape(ctx, kind, box, s, filled, edit) {
+    if (s.crisp) { crispShape(ctx, kind, box, s, filled, edit); return; }
     const x = Math.min(box.x0, box.x1), y = Math.min(box.y0, box.y1);
     const w = Math.abs(box.x1 - box.x0), h = Math.abs(box.y1 - box.y0);
     ctx.save(); setStyle(ctx, s);
@@ -1390,7 +1490,7 @@ const Engine = (() => {
   const cursorEl = $('#cursor');
   const chainBar = $('#chainBar');
 
-  const state = { tool: 'brush', brushId: 'pen', sizes: { pen: 2, brush: 20, eraser: 10, blur: 20 }, size: 2, color: '#000000', filled: false, paperColor: '#ffffff', fillTol: 30, fillExpand: 1, fillSrc: 'active', blurStr: 30, zoom: 1, panX: 0, panY: 0, space: false };
+  const state = { tool: 'brush', crisp: false, brushId: 'pen', sizes: { pen: 2, brush: 20, eraser: 10, blur: 20 }, size: 2, color: '#000000', filled: false, paperColor: '#ffffff', fillTol: 30, fillExpand: 1, fillSrc: 'active', blurStr: 30, zoom: 1, panX: 0, panY: 0, space: false };
 
   /* ---------- onion skin ---------- */
   // One previous frame only (cheaper and plenty for tracing). The engine still understands next / prevCount
@@ -1464,8 +1564,11 @@ const Engine = (() => {
   };
 
   /* ---------- view transform ---------- */
+  // In crisp mode, zoomed-in canvases show real pixels instead of the browser's smoothed upscale.
+  function updatePixView() { world.classList.toggle('pixview', state.crisp && state.zoom >= 1); }
   function applyView() {
     world.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.zoom})`;
+    updatePixView();
     updateCursorSize();
     updateStatus();
   }
@@ -1502,7 +1605,7 @@ const Engine = (() => {
   }
   $$('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 
-  const style = () => ({ size: state.size, color: state.color, erase: state.tool === 'eraser' });
+  const style = () => ({ size: state.size, color: state.color, erase: state.tool === 'eraser', crisp: state.crisp });
 
   function updateCursorSize() {
     const d = Math.max(4, state.size * state.zoom);
@@ -2269,6 +2372,15 @@ const Engine = (() => {
     if (['eraser', 'blur', 'fill', 'move', 'hand'].includes(state.tool)) setTool('brush'); else syncSize();
   }
   $('#brushSel').addEventListener('change', e => { setBrush(e.target.value); e.target.blur(); });
+
+  // Draw mode: Smooth (anti-aliased, the original look) or Crisp (hard pixels). Remembered between sessions.
+  function setCrisp(v, quiet) {
+    state.crisp = v; $('#modeSel').value = v ? 'crisp' : 'smooth'; updatePixView();
+    try { localStorage.setItem('dtDrawMode', v ? 'crisp' : 'smooth'); } catch (err) { /* optional */ }
+    if (!quiet) flash('Draw mode: ' + (v ? 'crisp' : 'smooth'));
+  }
+  $('#modeSel').addEventListener('change', e => { setCrisp(e.target.value === 'crisp'); e.target.blur(); });
+  try { if (localStorage.getItem('dtDrawMode') === 'crisp') setCrisp(true, true); } catch (err) { /* optional */ }
   sizeIn.addEventListener('input', () => setSize(+sizeIn.value));
 
   // Add more palettes here: name -> list of hex colors. The dropdown is built from this.
@@ -2807,6 +2919,7 @@ const Engine = (() => {
     if (k === ' ') { e.preventDefault(); state.space = true; stage.classList.add('pan'); cursorEl.style.display = 'none'; return; }
     switch (k.toLowerCase()) {
       case 'b': if (state.tool === 'brush') setBrush(state.brushId === 'pen' ? 'brush' : 'pen'); else setTool('brush'); break;
+      case 'm': setCrisp(!state.crisp); break;
       case 'e': setTool('eraser'); break;
       case 'l': setTool('line'); break;
       case 'r': setTool('rect'); break;
