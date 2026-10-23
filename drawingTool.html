@@ -286,6 +286,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       <button class="tb" data-tool="fill"><svg viewBox="0 0 24 24"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg></button>
       <button class="tb" data-tool="blur"><svg viewBox="0 0 24 24"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg></button>
       <button class="tb" data-tool="move"><svg viewBox="0 0 24 24"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg></button>
+      <button class="tb" id="popBtn"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><path d="M10 13l4-4M11 9h3v3"/></svg></button>
       </div>
     </div>
     <div class="sec" id="colorSec">
@@ -1830,8 +1831,40 @@ const Engine = (() => {
   let raf = 0;
   function requestRender() {
     if (raf) return;
-    raf = requestAnimationFrame(() => { raf = 0; Engine.composite(vctx, project.frame); if (!playing) scheduleThumb(); });
+    raf = requestAnimationFrame(() => { raf = 0; Engine.composite(vctx, project.frame); mirrorPop(); if (!playing) scheduleThumb(); });
   }
+
+  /* ---------- full-canvas pop-up: a separate window that mirrors the whole canvas live (drag it to a 2nd monitor) ---------- */
+  let pop = null, popCv = null, popCtx = null, popBg = '', popPix = null, popLbl = '', popEl = null;
+  const popOpen = () => !!(pop && !pop.closed && popCv && popCv.isConnected);
+  function mirrorPop() {
+    if (!pop) return;
+    if (!popOpen()) { pop = popCv = popCtx = popEl = null; $('#popBtn').classList.remove('active'); return; }
+    if (popCv.width !== view.width || popCv.height !== view.height) { popCv.width = view.width; popCv.height = view.height; }
+    popCtx.clearRect(0, 0, popCv.width, popCv.height); popCtx.drawImage(view, 0, 0);
+    if (popBg !== state.paperColor) { popBg = state.paperColor; popCv.style.background = popBg; }
+    const px = state.crisp ? 'pixelated' : 'auto'; if (popPix !== px) { popPix = px; popCv.style.imageRendering = px; }
+    const lbl = 'FULL CANVAS · FRAME ' + (project.currentFrame + 1) + ' / ' + project.frames.length;
+    if (popLbl !== lbl) { popLbl = lbl; popEl.textContent = lbl; pop.document.title = 'Drawing Tool · ' + lbl; }
+  }
+  function togglePop() {
+    if (popOpen()) { pop.close(); pop = null; mirrorPop(); return; }
+    pop = window.open('', 'dtFullCanvas', 'popup=yes,width=620,height=680');
+    if (!pop) { flash('Pop-up was blocked: allow pop-ups for this page'); return; }
+    const d = pop.document;
+    d.open();
+    d.write('<!doctype html><meta charset="utf-8"><title>Drawing Tool</title><style>' +
+      'html,body{margin:0;height:100%;background:#0c001f;color:#00ffff;font:11px/1 ui-monospace,Menlo,Consolas,monospace;overflow:hidden}' +
+      '#w{position:absolute;inset:26px 8px 8px;display:flex;align-items:center;justify-content:center;min-height:0}' +
+      '#c{max-width:100%;max-height:100%;aspect-ratio:1/1;width:auto;height:auto;box-shadow:0 0 0 1px #830cde,0 0 30px #830cde88}' +
+      '#t{position:absolute;left:10px;top:8px;letter-spacing:.12em}</style><div id="t"></div><div id="w"><canvas id="c"></canvas></div>');
+    d.close();
+    popCv = d.getElementById('c'); popEl = d.getElementById('t'); popCtx = popCv.getContext('2d');
+    popBg = popPix = popLbl = '';
+    $('#popBtn').classList.add('active'); mirrorPop(); flash('Full canvas window opened: drag it to your other screen');
+  }
+  $('#popBtn').addEventListener('click', togglePop);
+  window.addEventListener('beforeunload', () => { try { if (popOpen()) pop.close(); } catch (err) { /* ignore */ } });
 
   // Always-visible "which frame / which layer am I editing" label (canvas badge, panel title, status bar).
   function updateTarget() {
