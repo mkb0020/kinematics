@@ -236,12 +236,6 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
   border-top:1px solid var(--acc);font-family:var(--mono);font-size:12px;color:var(--soft);white-space:nowrap;overflow:hidden}
 #status b{color:var(--cy);font-weight:400}
 
-/* tooltip */
-#tip{position:fixed;z-index:50;pointer-events:none;background:#170032;border:1px solid var(--cy);color:var(--cy);
-  font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:5px;box-shadow:0 0 12px #00ffff55;
-  opacity:0;transition:opacity .1s;white-space:nowrap}
-#tip.on{opacity:1}
-
 @media (max-width:900px){
   #app{--pw:190px;--tw:190px}
 }
@@ -250,42 +244,42 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 <body>
 <div id="app">
   <header>
-    <h1><button class="titlebtn" id="helpBtn" data-tip="Shortcuts (or press ?)">DRAWING TOOL <span>&#9662;</span></button></h1>
+    <h1><button class="titlebtn" id="helpBtn">DRAWING TOOL <span>&#9662;</span></button></h1>
     <span class="hsep"></span>
-    <button class="tb hb" data-tool="hand" data-tip="Pan the view (H, or hold Space)"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg></button>
-    <button class="tb hb" id="zoomOutBtn" data-tip="Zoom out (-)"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></button>
-    <button class="tb hb" id="zoomInBtn" data-tip="Zoom in (+)"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></button>
-    <button class="tb hb" id="fitBtn" data-tip="Fit canvas to screen (0)"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+    <button class="tb hb" data-tool="hand"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg></button>
+    <button class="tb hb" id="zoomOutBtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></button>
+    <button class="tb hb" id="zoomInBtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></button>
+    <button class="tb hb" id="fitBtn"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
     <span class="hsep"></span>
-    <select id="brushSel" class="hsel" aria-label="Brush type" data-tip="Brush type: fine tip (size 1-10) or thick brush (10-100). Press B again to switch"><option value="pen">Fine tip</option><option value="brush">Thick brush</option></select>
-    <select id="modeSel" class="hsel" aria-label="Draw mode" data-tip="Draw mode: Smooth = soft anti-aliased edges. Crisp = hard pixels, no grey edge pixels (M toggles). Applies to brush, eraser, line, rect and circle"><option value="smooth">Smooth</option><option value="crisp">Crisp</option></select>
-    <label class="hsize" data-tip="Brush size ( [ and ] keys )"><span>SIZE</span><input type="range" id="size" min="1" max="10" value="2"><output id="sizeOut">2</output></label>
+    <select id="brushSel" class="hsel" aria-label="Brush type"><option value="pen">Fine tip</option><option value="brush">Thick brush</option></select>
+    <select id="modeSel" class="hsel" aria-label="Draw mode"><option value="smooth">Smooth</option><option value="crisp">Crisp</option></select>
+    <label class="hsize"><span>SIZE</span><input type="range" id="size" min="1" max="10" value="2"><output id="sizeOut">2</output></label>
     <span class="hsep"></span>
-    <button class="tb hb" id="undoBtn" data-tip="Undo (Ctrl+Z)" disabled><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
-    <button class="tb hb" id="redoBtn" data-tip="Redo (Ctrl+Shift+Z)" disabled><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg></button>
+    <button class="tb hb" id="undoBtn" disabled><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
+    <button class="tb hb" id="redoBtn" disabled><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg></button>
     <span class="hsep"></span>
-    <button class="hbtn" id="fileMenuBtn" data-tip="New / open / save the project (Ctrl+O, Ctrl+S)">FILE &#9662;</button>
-    <button class="hbtn" id="layerMenuBtn" data-tip="Flip / rotate / scale the active layer, and choose this frame or all frames">LAYER &#9662;</button>
-    <button class="hbtn" id="exportMenuBtn" data-tip="Export spritesheet / PNG sequence / frame">EXPORT &#9662;</button>
-    <button class="hbtn active" id="touchAssist" data-tip="Touch assist: bridges gaps when a touch screen drops contact mid-stroke, and ignores stray extra touches while you draw">TOUCH ASSIST</button>
+    <button class="hbtn" id="fileMenuBtn">FILE &#9662;</button>
+    <button class="hbtn" id="layerMenuBtn">LAYER &#9662;</button>
+    <button class="hbtn" id="exportMenuBtn">EXPORT &#9662;</button>
+    <button class="hbtn active" id="touchAssist">TOUCH ASSIST</button>
     <span class="spacer"></span>
-    <button class="tb hb active" data-pane="tools" data-tip="Show / hide the tool bar (Tab hides or shows every bar)"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
-    <button class="tb hb active" data-pane="strip" data-tip="Show / hide the frame bar"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15h18"/></svg></button>
-    <button class="tb hb active" data-pane="panel" data-tip="Show / hide the side panel"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
+    <button class="tb hb active" data-pane="tools"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+    <button class="tb hb active" data-pane="strip"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15h18"/></svg></button>
+    <button class="tb hb active" data-pane="panel"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
   </header>
 
   <nav id="toolbar">
     <div class="sec">
       <h2>Tools</h2>
       <div class="toolgrid">
-      <button class="tb active" data-tool="brush" data-tip="Brush (B)"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-      <button class="tb" data-tool="eraser" data-tip="Eraser (E)"><svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg></button>
-      <button class="tb" data-tool="line" data-tip="Chained line (L) &mdash; click points, Enter/double-click to finish"><svg viewBox="0 0 24 24"><polyline points="3 19 9 8 15 15 21 5"/><circle cx="3" cy="19" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="15" cy="15" r="1.4"/><circle cx="21" cy="5" r="1.4"/></svg></button>
-      <button class="tb" data-tool="rect" data-tip="Rectangle (R) &mdash; drag. Shift: square, Alt: from center"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/></svg></button>
-      <button class="tb" data-tool="circle" data-tip="Circle / ellipse (C) &mdash; drag. Shift: circle, Alt: from center"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></button>
-      <button class="tb" data-tool="fill" data-tip="Fill bucket (G) &mdash; reads edges from the layer chosen in the panel"><svg viewBox="0 0 24 24"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg></button>
-      <button class="tb" data-tool="blur" data-tip="Blur brush (U) &mdash; softens what you paint over"><svg viewBox="0 0 24 24"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg></button>
-      <button class="tb" data-tool="move" data-tip="Move layer (V) &mdash; drag the whole layer. Arrow keys nudge 1px, Shift+arrow 10px. Hits this frame or all frames, per the APPLY setting in the LAYER menu"><svg viewBox="0 0 24 24"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg></button>
+      <button class="tb active" data-tool="brush"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+      <button class="tb" data-tool="eraser"><svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg></button>
+      <button class="tb" data-tool="line"><svg viewBox="0 0 24 24"><polyline points="3 19 9 8 15 15 21 5"/><circle cx="3" cy="19" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="15" cy="15" r="1.4"/><circle cx="21" cy="5" r="1.4"/></svg></button>
+      <button class="tb" data-tool="rect"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/></svg></button>
+      <button class="tb" data-tool="circle"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></button>
+      <button class="tb" data-tool="fill"><svg viewBox="0 0 24 24"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg></button>
+      <button class="tb" data-tool="blur"><svg viewBox="0 0 24 24"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/></svg></button>
+      <button class="tb" data-tool="move"><svg viewBox="0 0 24 24"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg></button>
       </div>
     </div>
     <div class="sec" id="colorSec">
@@ -316,12 +310,12 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
   <div id="fileMenu" class="popmenu" hidden>
       <h2>Project <span class="sub" id="fileName">untitled</span></h2>
       <div class="onion-row">
-        <button class="btn" id="fNew" data-tip="Start an empty project">NEW</button>
-        <button class="btn" id="fOpen" data-tip="Open a .dtproj project file (Ctrl+O). You can also drop one on the canvas">OPEN&hellip;</button>
+        <button class="btn" id="fNew">NEW</button>
+        <button class="btn" id="fOpen">OPEN&hellip;</button>
       </div>
       <div class="onion-row">
-        <button class="btn" id="fSave" data-tip="Save to the current file (Ctrl+S)">SAVE</button>
-        <button class="btn" id="fSaveAs" data-tip="Save under a new name (Ctrl+Shift+S)">SAVE AS&hellip;</button>
+        <button class="btn" id="fSave">SAVE</button>
+        <button class="btn" id="fSaveAs">SAVE AS&hellip;</button>
       </div>
       <p class="note" id="fileInfo"></p>
   </div>
@@ -358,7 +352,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       </div>
       <div class="onion-row" id="exJsonRow">
         <span class="lbl" style="width:40px">TIMING</span>
-        <button class="tgl on" id="exJson" style="width:auto;flex:1" data-tip="Also write a .json file with each frame's hold, duration and the FPS (inside the .zip for PNG sequences)">+ TIMING JSON</button>
+        <button class="tgl on" id="exJson" style="width:auto;flex:1">+ TIMING JSON</button>
       </div>
       <button class="btn" id="exportBtn" style="width:100%">EXPORT</button>
       <p class="note" id="exInfo" style="margin-top:6px"></p>
@@ -367,39 +361,39 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
   <div id="layerMenu" class="popmenu" hidden>
       <h2>Adjust layer <span class="sub">active layer</span></h2>
       <div class="ctlrow" style="margin-bottom:6px">
-        <button class="tb sm" id="flipHBtn" data-tip="Flip horizontal"><svg viewBox="0 0 24 24"><path d="m3 7 5 5-5 5V7"/><path d="m21 7-5 5 5 5V7"/><path d="M12 20v2M12 14v2M12 8v2M12 2v2"/></svg></button>
-        <button class="tb sm" id="flipVBtn" data-tip="Flip vertical"><svg viewBox="0 0 24 24"><path d="m17 3-5 5-5-5h10"/><path d="m17 21-5-5-5 5h10"/><path d="M4 12H2M10 12H8M16 12h-2M22 12h-2"/></svg></button>
-        <button class="tb sm" id="rotLBtn" data-tip="Rotate 90&deg; left"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
-        <button class="tb sm" id="rotRBtn" data-tip="Rotate 90&deg; right"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
+        <button class="tb sm" id="flipHBtn"><svg viewBox="0 0 24 24"><path d="m3 7 5 5-5 5V7"/><path d="m21 7-5 5 5 5V7"/><path d="M12 20v2M12 14v2M12 8v2M12 2v2"/></svg></button>
+        <button class="tb sm" id="flipVBtn"><svg viewBox="0 0 24 24"><path d="m17 3-5 5-5-5h10"/><path d="m17 21-5-5-5 5h10"/><path d="M4 12H2M10 12H8M16 12h-2M22 12h-2"/></svg></button>
+        <button class="tb sm" id="rotLBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+        <button class="tb sm" id="rotRBtn"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
       </div>
       <div class="onion-row">
         <span class="lbl" style="width:40px">ANGLE</span>
         <input type="number" id="rotDeg" value="15" min="-180" max="180" step="1"><span class="unit">&deg;</span>
-        <button class="btn sm" id="rotApply" data-tip="Rotate by this angle (positive = clockwise)">APPLY</button>
+        <button class="btn sm" id="rotApply">APPLY</button>
       </div>
       <div class="onion-row">
         <span class="lbl" style="width:40px">SCALE</span>
         <input type="number" id="scalePct" value="50" min="10" max="400" step="5"><span class="unit">%</span>
-        <button class="btn sm" id="scaleApply" data-tip="Resize around the center of the frame">APPLY</button>
+        <button class="btn sm" id="scaleApply">APPLY</button>
       </div>
       <div class="onion-row">
         <span class="lbl" style="width:40px">CENTER</span>
-        <button class="btn sm" id="centerBoth" style="flex:1" data-tip="Center the layer in the frame, horizontally and vertically, using the middle of everything drawn on it">BOTH</button>
-        <button class="btn sm" id="centerH" style="flex:1" data-tip="Center horizontally only (keeps the vertical position)">H</button>
-        <button class="btn sm" id="centerV" style="flex:1" data-tip="Center vertically only (keeps the horizontal position)">V</button>
+        <button class="btn sm" id="centerBoth" style="flex:1">BOTH</button>
+        <button class="btn sm" id="centerH" style="flex:1">H</button>
+        <button class="btn sm" id="centerV" style="flex:1">V</button>
       </div>
       <div class="onion-row">
         <span class="lbl" style="width:40px">BRIGHT</span>
-        <input type="range" id="brightAmt" min="-100" max="100" value="0" step="1" style="flex:1;min-width:0" data-tip="Darken (left) or brighten (right) the whole layer. Previews live; APPLY commits"><output id="brightOut" style="font-family:var(--mono);font-size:11px;color:var(--cy);min-width:34px;text-align:right">0</output>
+        <input type="range" id="brightAmt" min="-100" max="100" value="0" step="1" style="flex:1;min-width:0"><output id="brightOut" style="font-family:var(--mono);font-size:11px;color:var(--cy);min-width:34px;text-align:right">0</output>
       </div>
       <div class="onion-row">
         <span class="lbl" style="width:40px"></span>
-        <button class="btn sm" id="brightApply" style="flex:1" data-tip="Apply the brightness change to the layer">APPLY</button>
-        <button class="btn sm" id="brightReset" style="flex:1" data-tip="Undo the preview and put the slider back to 0">RESET</button>
+        <button class="btn sm" id="brightApply" style="flex:1">APPLY</button>
+        <button class="btn sm" id="brightReset" style="flex:1">RESET</button>
       </div>
       <div class="onion-row" style="margin-bottom:0">
         <span class="lbl" style="width:40px">ON</span>
-        <button class="tgl" id="xfAll" style="width:auto;flex:1" data-tip="Choose whether transforms, brightness and the Move tool hit this frame or every frame. Other frames are matched by layer NAME; locked layers are skipped">THIS FRAME</button>
+        <button class="tgl" id="xfAll" style="width:auto;flex:1">THIS FRAME</button>
       </div>
   </div>
 
@@ -410,16 +404,16 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 
   <aside id="panel">
     <div class="sec">
-      <h2><span id="layersTitle">Frame 1 / Layers</span> <span class="sub" data-tip="Every frame has its own layers">per frame</span></h2>
+      <h2><span id="layersTitle">Frame 1 / Layers</span> <span class="sub">per frame</span></h2>
       <div id="layerList"></div>
       <div class="ctlrow lyrbtns" style="margin-bottom:6px">
-        <button class="tb sm" id="addLayerBtn" data-tip="Add layer above"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
-        <button class="tb sm" id="dupLayerBtn" data-tip="Duplicate layer (placed just above, this frame only)"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-        <button class="tb sm" id="importLayerBtn" data-tip="Import PNG / JPEG as a new layer (or drag image files onto the canvas)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-4.5-4.5L5 21"/></svg></button>
-        <button class="tb sm" id="delLayerBtn" data-tip="Delete layer"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg></button>
-        <button class="tb sm" id="upLayerBtn" data-tip="Move layer up"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
-        <button class="tb sm" id="downLayerBtn" data-tip="Move layer down"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-        <button class="tb sm" id="mergeLayerBtn" data-tip="Merge down &mdash; combine this layer into the one below (this frame only)"><svg viewBox="0 0 24 24"><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M4 17h16M7 21h10"/></svg></button>
+        <button class="tb sm" id="addLayerBtn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="tb sm" id="dupLayerBtn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        <button class="tb sm" id="importLayerBtn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.6"/><path d="m21 15-4.5-4.5L5 21"/></svg></button>
+        <button class="tb sm" id="delLayerBtn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg></button>
+        <button class="tb sm" id="upLayerBtn"><svg viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
+        <button class="tb sm" id="downLayerBtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        <button class="tb sm" id="mergeLayerBtn"><svg viewBox="0 0 24 24"><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M4 17h16M7 21h10"/></svg></button>
       </div>
       <div class="onion-row" style="margin-bottom:0">
         <span class="lbl">OPACITY</span>
@@ -429,8 +423,8 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
     <div class="sec" id="shapeSec" hidden>
       <h2>Shape</h2>
       <div class="seg">
-        <button data-fill="outline" class="on" data-tip="Outline only (T toggles)">OUTLINE</button>
-        <button data-fill="filled" data-tip="Filled (T toggles)">FILLED</button>
+        <button data-fill="outline" class="on">OUTLINE</button>
+        <button data-fill="filled">FILLED</button>
       </div>
     </div>
     <div class="sec" id="fillSec" hidden>
@@ -438,7 +432,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       <div class="onion-row">
         <span class="lbl">MODE</span>
         <div class="seg" id="fillMode" style="flex:1">
-          <button data-fm="paint" class="on" data-tip="Fill with the selected color">COLOR</button><button data-fm="clear" data-tip="No fill: clear the area to transparent pixels">NO FILL</button>
+          <button data-fm="paint" class="on">COLOR</button><button data-fm="clear">NO FILL</button>
         </div>
       </div>
       <div class="onion-row">
@@ -472,7 +466,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
     <div class="sec">
       <h2>Onion skin</h2>
       <div class="onion-row">
-        <button class="tgl prev on" id="onionPrev" data-tip="Previous frame in red (O toggles)">&#9664; PREV</button>
+        <button class="tgl prev on" id="onionPrev">&#9664; PREV</button>
         <input type="range" id="onionPrevOp" min="5" max="100" value="35"><output id="onionPrevOut">35%</output>
       </div>
       <p class="note">Shows the previous frame. Use the onion icon on a layer to choose which of its layers appear in the NEXT frame's onion skin.</p>
@@ -482,21 +476,21 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
   <section id="strip">
     <div id="stripCtl">
       <div class="ctlrow">
-        <button class="tb sm" id="playBtn" data-tip="Play (P)"><svg viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg></button>
-        <button class="tb sm" id="addFrameBtn" data-tip="Add frame (N)"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg></button>
-        <button class="tb sm" id="dupFrameBtn" data-tip="Duplicate frame (D)"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-        <button class="tb sm" id="delFrameBtn" data-tip="Delete frame (Delete)"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg></button>
+        <button class="tb sm" id="playBtn"><svg viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg></button>
+        <button class="tb sm" id="addFrameBtn"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg></button>
+        <button class="tb sm" id="dupFrameBtn"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        <button class="tb sm" id="delFrameBtn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg></button>
       </div>
       <div class="ctlrow">
-        <button class="tb sm" id="moveLBtn" data-tip="Move frame left"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
-        <button class="tb sm" id="moveRBtn" data-tip="Move frame right"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
-        <label id="fpsWrap" data-tip="Playback speed"><input type="range" id="fps" min="1" max="30" value="12"><span id="fpsOut">12 FPS</span></label>
+        <button class="tb sm" id="moveLBtn"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button class="tb sm" id="moveRBtn"><svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
+        <label id="fpsWrap"><input type="range" id="fps" min="1" max="30" value="12"><span id="fpsOut">12 FPS</span></label>
       </div>
       <div class="ctlrow" id="holdRow">
-        <span class="holdlbl" data-tip="How long the selected frame stays on screen, as a multiple of the FPS tick. Saved in the timing JSON on export">HOLD</span>
-        <button class="tb sm" id="holdDn" data-tip="Shorter hold ( &lt; key )"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <span class="holdlbl">HOLD</span>
+        <button class="tb sm" id="holdDn"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
         <output id="holdOut">&times;1</output>
-        <button class="tb sm" id="holdUp" data-tip="Longer hold ( &gt; key )"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="tb sm" id="holdUp"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
       </div>
     </div>
     <div id="frames"></div>
@@ -522,7 +516,6 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
   <button class="pill warn" id="recoverNo">DISCARD</button>
 </div>
 <div id="busy" hidden><div id="busyMsg">Working&hellip;</div></div>
-<div id="tip"></div>
 
 <script>
 /* =====================================================================
@@ -2104,17 +2097,15 @@ const Engine = (() => {
       const row = document.createElement('div');
       row.className = 'lyr' + (l.visible ? '' : ' off') + (l.locked ? ' locked' : ''); row.dataset.i = i;
       const eye = document.createElement('button');
-      eye.className = 'eye' + (l.visible ? ' on' : ''); eye.dataset.tip = l.visible ? 'Hide layer' : 'Show layer';
+      eye.className = 'eye' + (l.visible ? ' on' : '');
       eye.innerHTML = '<svg viewBox="0 0 24 24">' + (l.visible ? EYE_ON : EYE_OFF) + '</svg>';
       const c = document.createElement('canvas'); c.width = c.height = 56;
       const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = l.name;
       const lk = document.createElement('button');
       lk.className = 'lock' + (l.locked ? ' on' : '');
-      lk.dataset.tip = l.locked ? 'Unlock layer' : 'Lock layer (blocks drawing, move, transforms and merge)';
       lk.innerHTML = '<svg viewBox="0 0 24 24">' + (l.locked ? LOCK_ON : LOCK_OFF) + '</svg>';
       const oni = document.createElement('button');
       oni.className = 'oni' + (l.onion ? ' on' : '');
-      oni.dataset.tip = l.onion ? 'Shown as onion skin in the next frame (click to exclude)' : 'Not shown as onion skin in the next frame (click to include)';
       oni.innerHTML = '<svg viewBox="0 0 24 24">' + (l.onion ? ONI_ON : ONI_OFF) + '</svg>';
       row.append(eye, c, nm, oni, lk); layerList.appendChild(row);
       Engine.renderLayerThumb(l, c);
@@ -2363,13 +2354,13 @@ const Engine = (() => {
     if (playing || stroke || shape) return;
     finishChain();
     playing = true; lastT = performance.now(); onionEl.style.display = 'none';
-    const b = $('#playBtn'); b.classList.add('active'); b.dataset.tip = 'Pause (P)'; $('svg', b).innerHTML = ICON_PAUSE;
+    const b = $('#playBtn'); b.classList.add('active'); $('svg', b).innerHTML = ICON_PAUSE;
     playRaf = requestAnimationFrame(tick);
   }
   function stopPlayback() {
     if (!playing) return;
     playing = false; cancelAnimationFrame(playRaf); onionEl.style.display = ''; requestOnion();
-    const b = $('#playBtn'); b.classList.remove('active'); b.dataset.tip = 'Play (P)'; $('svg', b).innerHTML = ICON_PLAY;
+    const b = $('#playBtn'); b.classList.remove('active'); $('svg', b).innerHTML = ICON_PLAY;
     refreshStrip(); refreshLayers(); updateStatus();
   }
   function tick(now) {
@@ -2454,7 +2445,7 @@ const Engine = (() => {
     palSel.value = name; swWrap.innerHTML = '';
     PALETTES[name].forEach(c => {
       const d = document.createElement('div');
-      d.className = 'sw'; d.style.background = c; d.dataset.c = c; d.dataset.tip = c.toUpperCase();
+      d.className = 'sw'; d.style.background = c; d.dataset.c = c;
       d.addEventListener('click', () => setColor(c));
       swWrap.appendChild(d);
     });
@@ -2602,7 +2593,6 @@ const Engine = (() => {
   function setBusy(on, msg) {
     busy = on; $('#busy').hidden = !on;
     if (msg) $('#busyMsg').textContent = msg;
-    if (on) hideTip();
   }
   const setBusyMsg = msg => { $('#busyMsg').textContent = msg; };
 
@@ -3006,40 +2996,6 @@ const Engine = (() => {
   });
   window.addEventListener('blur', () => { state.space = false; });
 
-  /* ---------- tooltips (hover on mouse, long-press on touch) ---------- */
-  const tip = $('#tip');
-  let tipTimer = 0, hideTimer = 0;
-  function showTip(el) {
-    tip.innerHTML = el.dataset.tip;
-    const r = el.getBoundingClientRect(), tw = tip.offsetWidth;
-    // open to the right of the control; flip to its left near the window edge (right-hand panel)
-    tip.style.left = (r.right + 10 + tw > window.innerWidth ? Math.max(4, r.left - 10 - tw) : r.right + 10) + 'px';
-    tip.style.top = (r.top + r.height / 2 - 11) + 'px';
-    tip.classList.add('on');
-  }
-  function hideTip() { tip.classList.remove('on'); }
-  document.addEventListener('pointerover', e => {
-    if (e.pointerType === 'touch') return;
-    const el = e.target.closest('[data-tip]'); if (el) showTip(el);
-  });
-  document.addEventListener('pointerout', e => {
-    if (e.pointerType === 'touch') return;
-    if (e.target.closest('[data-tip]')) hideTip();
-  });
-  document.addEventListener('pointerdown', e => {
-    if (e.pointerType !== 'touch') return;
-    const el = e.target.closest('[data-tip]'); if (!el) return;
-    clearTimeout(tipTimer); clearTimeout(hideTimer);
-    tipTimer = setTimeout(() => { showTip(el); el._suppress = true; hideTimer = setTimeout(hideTip, 1800); }, 450);
-  });
-  const cancelLongPress = () => clearTimeout(tipTimer);
-  document.addEventListener('pointerup', cancelLongPress);
-  document.addEventListener('pointercancel', cancelLongPress);
-  document.addEventListener('click', e => {
-    const el = e.target.closest('[data-tip]');
-    if (el && el._suppress) { el._suppress = false; e.stopPropagation(); e.preventDefault(); }
-  }, true);
-
   /* ---------- collapsible bars ---------- */
   const appEl = $('#app'), PANE_CLASS = { tools: 'no-tools', panel: 'no-panel', strip: 'no-strip' };
   const hiddenPanes = new Set();
@@ -3073,7 +3029,6 @@ const Engine = (() => {
       const on = open && n === name;
       m.el.hidden = !on; m.btn.classList.toggle('active', on);
     }
-    hideTip();
     if (!open) return;
     const m = MENUS[name], r = m.btn.getBoundingClientRect();
     m.el.style.left = Math.max(4, Math.min(r.left, window.innerWidth - m.el.offsetWidth - 4)) + 'px';
