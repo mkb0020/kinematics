@@ -202,16 +202,22 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 #target b{color:var(--cy);font-weight:400}
 #target.locked{border-color:var(--pk)}
 #target .lk{color:var(--pk);margin-left:8px}
-.lock{flex:none;width:24px;height:26px;border:0;background:none;color:#6a6a96;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
+.lock{flex:none;width:21px;height:26px;border:0;background:none;color:#6a6a96;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
 .lock svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .lock:hover{color:#fff}
 .lock.on{color:var(--pk)}
-.oni{flex:none;width:24px;height:26px;border:0;background:none;color:#6a6a96;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
+.oni{flex:none;width:21px;height:26px;border:0;background:none;color:#6a6a96;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
 .oni svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .oni:hover{color:#fff}
 .oni.on{color:#ff3b3b}
 .lyr{gap:4px}
 .lyr.locked{border-left:3px solid var(--pk)}
+.clp{flex:none;width:21px;height:26px;border:0;background:none;color:#6a6a96;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
+.clp svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.clp:hover{color:#fff}
+.clp.on{color:var(--cy)}
+.clp.na{opacity:.25;cursor:default;pointer-events:none}
+.lyr.clipped{margin-left:8px;border-left:3px solid var(--cy)}
 #stage.drop{outline:2px dashed var(--cy);outline-offset:-4px}
 .holdlbl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--mute);width:34px;flex:none}
 #holdOut{font-family:var(--mono);font-size:11px;color:var(--cy);min-width:78px;text-align:center;flex:1;white-space:nowrap}
@@ -399,7 +405,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 
   <div id="helpMenu" class="popmenu wide" hidden>
     <h2>Shortcuts</h2>
-    <div class="keys"><div><span>B</span> brush / switch type</div><div><span>M</span> smooth / crisp draw mode</div><div><span>A</span> auto-tidy on / off</div><div><span>E</span> eraser</div><div><span>L</span> line</div><div><span>R</span> rect</div><div><span>C</span> circle</div><div><span>G</span> fill</div><div><span>U</span> blur</div><div><span>V</span> move layer</div><div><span>H</span> pan</div><div><span>T</span> outline / filled</div><div><span>[ ]</span> brush size</div><div><span>+ -</span> zoom</div><div><span>0</span> fit canvas</div><div><span>O</span> onion skin</div><div><span>N</span> new frame</div><div><span>D</span> duplicate frame</div><div><span>Del</span> delete frame</div><div><span>P</span> play / pause</div><div><span>, .</span> prev / next</div><div><span>&lt; &gt;</span> frame hold -/+</div><div><span>Enter</span> finish line</div><div><span>Esc</span> cancel</div><div><span>Shift</span> 45&deg; / square</div><div><span>Alt</span> from center</div><div><span>Arrows</span> nudge (Move)</div><div><span>Shift+Arrows</span> nudge 10px</div><div><span>Shift+H</span> flip horizontal</div><div><span>Shift+V</span> flip vertical</div><div><span>Ctrl+Z</span> undo</div><div><span>Ctrl+Shift+Z</span> redo</div><div><span>Tab</span> hide / show bars</div><div><span>?</span> this list</div><div><span>Wheel</span> zoom</div><div><span>Space+drag</span> pan</div><div><span>2 fingers</span> pan / pinch</div></div>
+    <div class="keys"><div><span>B</span> brush / switch type</div><div><span>M</span> smooth / crisp draw mode</div><div><span>A</span> auto-tidy on / off</div><div><span>E</span> eraser</div><div><span>L</span> line</div><div><span>R</span> rect</div><div><span>C</span> circle</div><div><span>G</span> fill</div><div><span>U</span> blur</div><div><span>V</span> move layer</div><div><span>H</span> pan</div><div><span>T</span> outline / filled</div><div><span>[ ]</span> brush size</div><div><span>+ -</span> zoom</div><div><span>0</span> fit canvas</div><div><span>O</span> onion skin</div><div><span>K</span> clip layer to layer below</div><div><span>N</span> new frame</div><div><span>D</span> duplicate frame</div><div><span>Del</span> delete frame</div><div><span>P</span> play / pause</div><div><span>, .</span> prev / next</div><div><span>&lt; &gt;</span> frame hold -/+</div><div><span>Enter</span> finish line</div><div><span>Esc</span> cancel</div><div><span>Shift</span> 45&deg; / square</div><div><span>Alt</span> from center</div><div><span>Arrows</span> nudge (Move)</div><div><span>Shift+Arrows</span> nudge 10px</div><div><span>Shift+H</span> flip horizontal</div><div><span>Shift+V</span> flip vertical</div><div><span>Ctrl+Z</span> undo</div><div><span>Ctrl+Shift+Z</span> redo</div><div><span>Tab</span> hide / show bars</div><div><span>?</span> this list</div><div><span>Wheel</span> zoom</div><div><span>Space+drag</span> pan</div><div><span>2 fingers</span> pan / pinch</div></div>
   </div>
 
   <aside id="panel">
@@ -549,12 +555,13 @@ const Engine = (() => {
       this.id = uid++;
       this.name = name; this.visible = true; this.opacity = 1; this.locked = false;
       this.onion = true;     // when true (and visible), this layer is drawn in the onion skin of the NEXT frame
-      this.ver = 0;          // bumped whenever the pixels change, so saving/autosave can skip layers that did not
+      this.clip = false;     // clipping mask: only shows where its base (the nearest unclipped layer below) has pixels
+      this.ver = 0;         // bumped whenever the pixels change, so saving/autosave can skip layers that did not
       this.canvas = makeCanvas(w, h); this.ctx = this.canvas.getContext('2d');
     }
     clone(w, h) {
       const l = new Layer(w, h, this.name);
-      l.visible = this.visible; l.opacity = this.opacity; l.locked = this.locked; l.onion = this.onion;
+      l.visible = this.visible; l.opacity = this.opacity; l.locked = this.locked; l.onion = this.onion; l.clip = this.clip;
       l.ctx.drawImage(this.canvas, 0, 0);
       return l;
     }
@@ -687,6 +694,8 @@ const Engine = (() => {
     addLayer(opts = {}) {
       const f = this.frame, at = f.activeLayer + 1, prev = f.activeLayer;
       const l = new Layer(this.width, this.height, opts.name || this._nextName(f));
+      // inserted inside a clipping group (the layer above is clipped)? join it, so the empty layer doesn't become the new base
+      if (f.layers[at] && f.layers[at].clip) l.clip = true;
       f.layers.splice(at, 0, l);
       if (opts.draw) opts.draw(l.ctx);
       f.activeLayer = at; this.dirty = true;
@@ -745,7 +754,7 @@ const Engine = (() => {
       const f = this.frame, i = f.activeLayer, at = i + 1, w = this.width, h = this.height, src = f.layers[i];
       const base = src.name.length > 19 ? src.name.slice(0, 19) : src.name;
       const l = new Layer(w, h, base + ' copy');
-      l.visible = src.visible; l.opacity = src.opacity; l.onion = src.onion; l.ctx.drawImage(src.canvas, 0, 0);
+      l.visible = src.visible; l.opacity = src.opacity; l.onion = src.onion; l.clip = src.clip; l.ctx.drawImage(src.canvas, 0, 0);
       f.layers.splice(at, 0, l); f.activeLayer = at; this.dirty = true;
       this.history.push({
         label: 'Duplicate layer', frame: f, bytes: w * h * 4,
@@ -765,6 +774,8 @@ const Engine = (() => {
       if (lo.locked) return 'Layer below is locked: unlock it to merge';
       if (!up.visible) return 'Layer is hidden: show it to merge';
       if (!lo.visible) return 'Layer below is hidden: show it to merge';
+      const above = this.frame.layers[i + 1];
+      if (above && above.clip && !up.clip) return 'Layers are clipped to this one: release them first';
       return null;
     }
     mergeDown() {
@@ -772,7 +783,8 @@ const Engine = (() => {
       const f = this.frame, i = f.activeLayer, w = this.width, h = this.height;
       const up = f.layers[i], lo = f.layers[i - 1], before = lo.ctx.getImageData(0, 0, w, h);
       const apply = () => {
-        const c = lo.ctx; c.save(); c.globalCompositeOperation = 'source-over'; c.globalAlpha = up.opacity;
+        // a clipped layer merging into its base only lands where the base has pixels
+        const c = lo.ctx; c.save(); c.globalCompositeOperation = (up.clip && !lo.clip) ? 'source-atop' : 'source-over'; c.globalAlpha = up.opacity;
         c.drawImage(up.canvas, 0, 0); c.restore(); lo.ver++;
         const k = f.layers.indexOf(up); if (k >= 0) f.layers.splice(k, 1);
         f.activeLayer = i - 1;
@@ -1582,12 +1594,18 @@ const Engine = (() => {
     const c = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
     c.clearRect(0, 0, w, h); c.fillStyle = bg; c.fillRect(0, 0, w, h);
     c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    if (frame.layers.some((l, i) => i > 0 && l.clip)) {      // clipping masks need the real composite, then one scaled draw
+      const s = frame.layers[0].canvas;
+      if (!thumbTmp || thumbTmp.width !== s.width || thumbTmp.height !== s.height) thumbTmp = makeCanvas(s.width, s.height);
+      composite(thumbTmp.getContext('2d'), frame); c.drawImage(thumbTmp, 0, 0, w, h); return;
+    }
     for (const l of frame.layers) {
       if (!l.visible) continue;
       c.globalAlpha = l.opacity; c.drawImage(l.canvas, 0, 0, w, h);
     }
     c.globalAlpha = 1;
   }
+  let thumbTmp = null;
 
   // Onion skin: neighboring frames as flat color silhouettes (alpha kept, color replaced),
   // drawn furthest first. Only layers that are visible AND have their onion flag on are included,
@@ -1614,11 +1632,28 @@ const Engine = (() => {
     ctx.globalAlpha = 1;
   }
 
+  // Clipping masks: a layer with .clip (above the bottom layer) is drawn together with its base, the nearest
+  // unclipped layer below. The clipped layers are stacked in a scratch canvas, cut to the base's pixels, then
+  // drawn at the base's opacity. Hidden base = clipped layers hidden too.
+  let clipTmp = null;
   function composite(ctx, frame, onionOnly = false) {
-    const c = ctx.canvas; ctx.clearRect(0, 0, c.width, c.height);
-    for (const l of frame.layers) {
-      if (!l.visible || (onionOnly && !l.onion)) continue;
-      ctx.globalAlpha = l.opacity; ctx.drawImage(l.canvas, 0, 0);
+    const c = ctx.canvas, ls = frame.layers; ctx.clearRect(0, 0, c.width, c.height);
+    for (let i = 0; i < ls.length; i++) {
+      const l = ls[i];
+      if (i > 0 && l.clip) continue;                                   // drawn with its base
+      if (l.visible && !(onionOnly && !l.onion)) { ctx.globalAlpha = l.opacity; ctx.drawImage(l.canvas, 0, 0); }
+      if (!l.visible || !ls[i + 1] || !ls[i + 1].clip) continue;
+      if (!clipTmp || clipTmp.width !== c.width || clipTmp.height !== c.height) clipTmp = makeCanvas(c.width, c.height);
+      const t = clipTmp.getContext('2d'); let any = false;
+      t.globalCompositeOperation = 'source-over'; t.globalAlpha = 1; t.clearRect(0, 0, c.width, c.height);
+      for (let j = i + 1; ls[j] && ls[j].clip; j++) {
+        const m = ls[j]; if (!m.visible || (onionOnly && !m.onion)) continue;
+        t.globalAlpha = m.opacity; t.drawImage(m.canvas, 0, 0); any = true;
+      }
+      if (!any) continue;
+      t.globalAlpha = 1; t.globalCompositeOperation = 'destination-in'; t.drawImage(l.canvas, 0, 0);
+      t.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = l.opacity; ctx.drawImage(clipTmp, 0, 0);
     }
     ctx.globalAlpha = 1;
   }
@@ -2339,6 +2374,7 @@ const Engine = (() => {
   const EYE_OFF = '<path d="M3 3l18 18"/><path d="M10.6 6.1A9.9 9.9 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-3.2 3.9M6.6 6.7C3.9 8.5 2 12 2 12s3.5 7 10 7c1.6 0 3-.3 4.3-.9"/>';
   const LOCK_ON = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>';
   const LOCK_OFF = '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>';
+  const CLP_ICON = '<path d="M20 4v7a4 4 0 0 1-4 4H5"/><path d="m9 11-4 4 4 4"/>';
   const ONI_ON = '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>';
   const ONI_OFF = '<circle cx="9" cy="12" r="6" stroke-dasharray="2.5 3"/><circle cx="15" cy="12" r="6" stroke-dasharray="2.5 3"/>';
   let msgTimer = 0, opStart = null;
@@ -2360,7 +2396,8 @@ const Engine = (() => {
     for (let i = ls.length - 1; i >= 0; i--) {            // top of the stack first
       const l = ls[i];
       const row = document.createElement('div');
-      row.className = 'lyr' + (l.visible ? '' : ' off') + (l.locked ? ' locked' : ''); row.dataset.i = i;
+      const clipped = i > 0 && l.clip;          // the bottom layer has nothing to clip to
+      row.className = 'lyr' + (l.visible ? '' : ' off') + (l.locked ? ' locked' : '') + (clipped ? ' clipped' : ''); row.dataset.i = i;
       const eye = document.createElement('button');
       eye.className = 'eye' + (l.visible ? ' on' : '');
       eye.innerHTML = '<svg viewBox="0 0 24 24">' + (l.visible ? EYE_ON : EYE_OFF) + '</svg>';
@@ -2372,7 +2409,10 @@ const Engine = (() => {
       const oni = document.createElement('button');
       oni.className = 'oni' + (l.onion ? ' on' : '');
       oni.innerHTML = '<svg viewBox="0 0 24 24">' + (l.onion ? ONI_ON : ONI_OFF) + '</svg>';
-      row.append(eye, c, nm, oni, lk); layerList.appendChild(row);
+      const clp = document.createElement('button');
+      clp.className = 'clp' + (clipped ? ' on' : '') + (i === 0 ? ' na' : '');
+      clp.innerHTML = '<svg viewBox="0 0 24 24">' + CLP_ICON + '</svg>';
+      row.append(eye, c, nm, clp, oni, lk); layerList.appendChild(row);
       Engine.renderLayerThumb(l, c);
     }
     syncLayerSel(); updateFillSources();
@@ -2408,6 +2448,7 @@ const Engine = (() => {
       flash(project.frame.layers[i].name + (nv ? ': in next frame’s onion skin' : ': left out of onion skin'));
       return;
     }
+    if (e.target.closest('.clp')) { toggleClip(i); return; }
     if (e.target.closest('.lock')) {
       const nv = !project.frame.layers[i].locked;
       project.setLayerProp(i, 'locked', nv, nv ? 'Lock layer' : 'Unlock layer');
@@ -2416,6 +2457,17 @@ const Engine = (() => {
     }
     if (i !== project.activeLayer) { project.selectLayer(i); syncLayerSel(); updateStatus(); }
   });
+  // Clipping mask on/off for layer i (default: the active layer). Non-destructive: the paint is kept either way.
+  function toggleClip(i = project.activeLayer) {
+    if (!frameGuard()) return;
+    const ls = project.frame.layers, l = ls[i];
+    if (!l) return;
+    if (i === 0) { flash('Nothing below to clip to'); return; }
+    const nv = !l.clip;
+    project.setLayerProp(i, 'clip', nv, nv ? 'Clip layer to layer below' : 'Release clipping mask');
+    project.frames.forEach((_, k) => drawThumb(k));
+    flash(nv ? l.name + ': clipped to the layer below' : l.name + ': clipping mask released');
+  }
   layerList.addEventListener('dblclick', e => {
     const nm = e.target.closest('.nm'); if (!nm || e.target.closest('input')) return;
     startRename(+nm.closest('.lyr').dataset.i);
@@ -2856,7 +2908,7 @@ const Engine = (() => {
      A .dtproj file is a plain zip:
        project.json          manifest: canvas size, fps, paper color, onion + export settings,
                              and for every frame: hold, selected layer, and its layers
-                             (name, visible, opacity, locked, onion, file)
+                             (name, visible, opacity, locked, onion, clip, file)
        frames/f001/l01.png   one full-size transparent PNG per layer (l01 = bottom layer)
      A layer that is fully transparent has "file": null and no PNG, which keeps files small.
      Rename it to .zip and you can open it with any archive tool.
@@ -2907,7 +2959,7 @@ const Engine = (() => {
       export: { name: $('#exName').value, size: exSize(), mode: $('#exMode').value, layout: $('#exLayout').value, cols: +$('#exCols').value || 4, timingJson: exJson },
       frames: snap.map(s => ({
         hold: s.frame.hold, activeLayer: Math.min(s.frame.activeLayer, s.layers.length - 1),
-        layers: s.layers.map(l => ({ name: l.name, visible: l.visible, opacity: Math.round(l.opacity * 1000) / 1000, locked: l.locked, onion: l.onion, file: fileOf(l) }))
+        layers: s.layers.map(l => ({ name: l.name, visible: l.visible, opacity: Math.round(l.opacity * 1000) / 1000, locked: l.locked, onion: l.onion, clip: !!l.clip, file: fileOf(l) }))
       }))
     };
   }
@@ -2951,7 +3003,7 @@ const Engine = (() => {
         const nm = String((ld && ld.name) != null ? ld.name : 'Layer').slice(0, 24);
         const l = new Engine.Layer(W, H, nm || 'Layer');
         const op = +ld.opacity; l.opacity = isFinite(op) ? clamp(op, 0, 1) : 1;
-        l.visible = ld.visible !== false; l.locked = !!ld.locked; l.onion = ld.onion !== false;
+        l.visible = ld.visible !== false; l.locked = !!ld.locked; l.onion = ld.onion !== false; l.clip = !!ld.clip;
         if (ld.file) {
           const bmp = await createImageBitmap(new Blob([await getData(String(ld.file))], { type: 'image/png' }));
           try {
@@ -3256,6 +3308,7 @@ const Engine = (() => {
       case 'u': setTool('blur'); break;
       case 't': setFill(!state.filled); break;
       case 'o': toggleOnion(); break;
+      case 'k': toggleClip(); break;
       case 'n': if (frameGuard()) project.addFrame(); break;
       case 'd': if (frameGuard()) project.duplicateFrame(); break;
       case 'delete': if (frameGuard()) project.deleteFrame(); break;
