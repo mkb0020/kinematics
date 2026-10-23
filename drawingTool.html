@@ -383,6 +383,12 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
         <button class="btn sm" id="scaleApply" data-tip="Resize around the center of the frame">APPLY</button>
       </div>
       <div class="onion-row">
+        <span class="lbl" style="width:40px">CENTER</span>
+        <button class="btn sm" id="centerBoth" style="flex:1" data-tip="Center the layer in the frame, horizontally and vertically, using the middle of everything drawn on it">BOTH</button>
+        <button class="btn sm" id="centerH" style="flex:1" data-tip="Center horizontally only (keeps the vertical position)">H</button>
+        <button class="btn sm" id="centerV" style="flex:1" data-tip="Center vertically only (keeps the horizontal position)">V</button>
+      </div>
+      <div class="onion-row">
         <span class="lbl" style="width:40px">BRIGHT</span>
         <input type="range" id="brightAmt" min="-100" max="100" value="0" step="1" style="flex:1;min-width:0" data-tip="Darken (left) or brighten (right) the whole layer. Previews live; APPLY commits"><output id="brightOut" style="font-family:var(--mono);font-size:11px;color:var(--cy);min-width:34px;text-align:right">0</output>
       </div>
@@ -802,6 +808,41 @@ const Engine = (() => {
         redo: () => layers.forEach((l, k) => l.ctx.putImageData(after[k], 0, 0))
       });
       return layers.length;
+    }
+
+    // Center the layer: finds the bounding box of every non-transparent pixel and moves the layer so the middle
+    // of that box lands on the middle of the frame. axis = 'both' | 'h' | 'v'. With allFrames, each matching layer
+    // is centered on its own. Whole pixels only, so nothing is resampled (a box whose size doesn't match the
+    // frame's parity ends up half a pixel off, rounded). One undo step. Returns { moved, empty }.
+    centerLayer(axis, allFrames) {
+      const w = this.width, h = this.height;
+      const todo = [];
+      let empty = 0;
+      for (const l of this.targetLayers(allFrames)) {
+        const d = l.ctx.getImageData(0, 0, w, h), px = d.data;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (let y = 0; y < h; y++) for (let x = 0, i = (y * w) * 4 + 3; x < w; x++, i += 4) {
+          if (px[i]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+        if (x1 < 0) { empty++; continue; }
+        const dx = axis === 'v' ? 0 : Math.round((w - (x0 + x1 + 1)) / 2), dy = axis === 'h' ? 0 : Math.round((h - (y0 + y1 + 1)) / 2);
+        if (dx || dy) todo.push({ l, dx, dy, before: d });
+      }
+      if (!todo.length) return { moved: 0, empty };
+      const tmp = makeCanvas(w, h), tc = tmp.getContext('2d');
+      for (const t of todo) {
+        tc.globalCompositeOperation = 'copy'; tc.drawImage(t.l.canvas, 0, 0);
+        t.l.ctx.clearRect(0, 0, w, h); t.l.ctx.drawImage(tmp, t.dx, t.dy);
+        t.after = t.l.ctx.getImageData(0, 0, w, h);
+      }
+      const layers = todo.map(t => t.l);
+      this.dirty = true; layers.forEach(l => l.ver++);
+      this.history.push({
+        label: 'Center layer', frame: this.frame, layer: this.layer, touched: layers, thumbsAll: layers.length > 1, bytes: layers.length * w * h * 8,
+        undo: () => todo.forEach(t => t.l.ctx.putImageData(t.before, 0, 0)),
+        redo: () => todo.forEach(t => t.l.ctx.putImageData(t.after, 0, 0))
+      });
+      return { moved: todo.length, empty };
     }
   }
 
@@ -2264,6 +2305,17 @@ const Engine = (() => {
   $('#flipVBtn').addEventListener('click', () => applyXf('flipV'));
   $('#rotLBtn').addEventListener('click', () => applyXf('rot', -90));
   $('#rotRBtn').addEventListener('click', () => applyXf('rot', 90));
+  function centerLayer(axis) {
+    if (!frameGuard()) return;
+    if (project.layer.locked) { flash(project.layer.name + ' is locked: unlock it to center'); return; }
+    const r = project.centerLayer(axis, xfAll);
+    if (!r.moved) { flash(r.empty ? 'Nothing to center: layer is empty' : 'Already centered'); return; }
+    if (xfAll) { project.frames.forEach((_, i) => drawThumb(i)); flash('Centered "' + project.layer.name + '" in ' + r.moved + (r.moved === 1 ? ' frame' : ' frames') + ' (others already centered or empty)'); }
+    else flash('Centered layer');
+  }
+  $('#centerBoth').addEventListener('click', e => { centerLayer('both'); e.currentTarget.blur(); });
+  $('#centerH').addEventListener('click', e => { centerLayer('h'); e.currentTarget.blur(); });
+  $('#centerV').addEventListener('click', e => { centerLayer('v'); e.currentTarget.blur(); });
   $('#rotApply').addEventListener('click', () => {
     const v = parseFloat($('#rotDeg').value);
     $('#rotDeg').blur();
