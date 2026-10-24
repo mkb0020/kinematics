@@ -69,6 +69,10 @@ button:hover{background:#830cde;color:#fff}
   background:rgba(12,0,31,.82);color:var(--soft);text-align:center;overflow:hidden;white-space:nowrap;
 }
 .how code{color:var(--mint)}
+select{
+  width:100%;background:#37025a;color:var(--cyan);border:1px solid var(--hi);border-radius:4px;
+  padding:5px 6px;font:inherit;
+}
 .how p{margin:4px 0;color:var(--soft);font-size:12px}
 kbd{border:1px solid var(--hi);border-radius:3px;padding:0 4px;color:var(--gold)}
 #toast{
@@ -89,6 +93,11 @@ kbd{border:1px solid var(--hi);border-radius:3px;padding:0 4px;color:var(--gold)
     <div id="status">LOADING…</div>
   </section>
   <aside>
+    <div class="box">
+      <h2>TILESET</h2>
+      <select id="setSel"></select>
+      <div id="setInfo" style="color:var(--mute);font-size:11px;margin-top:6px"></div>
+    </div>
     <div class="box">
       <h2>TOOL</h2>
       <label class="row"><input type="radio" name="tool" value="solid" checked> PAINT SOLID (autotiles)</label>
@@ -111,15 +120,15 @@ kbd{border:1px solid var(--hi);border-radius:3px;padding:0 4px;color:var(--gold)
       <label class="row"><input type="checkbox" id="oDecor" checked> DECOR <kbd>D</kbd></label>
       <label class="row"><input type="checkbox" id="oLight" checked> LIGHTING <kbd>L</kbd></label>
       <label class="row"><input type="checkbox" id="oAnim" checked> ANIMATE <kbd>SPACE</kbd></label>
-      <div class="sl"><b><span>ZOOM</span><span id="vZoom"></span></b><input type="range" id="zoom" min="30" max="120" value="55"></div>
+      <div class="sl"><b><span>ZOOM</span><span id="vZoom"></span></b><input type="range" id="zoom" min="10" max="150" value="55"></div>
       <div class="sl"><b><span>EDGE INSET (SEAM FIX)</span><span id="vInset"></span></b><input type="range" id="inset" min="0" max="10" value="4"></div>
       <div class="sl"><b><span>DARKNESS</span><span id="vAmb"></span></b><input type="range" id="amb" min="0" max="90" value="45"></div>
       <button id="bFit">FIT</button><button id="bReset">RESET MAP</button><button id="bCopy">COPY MAP JSON</button>
     </div>
     <div class="box how">
       <h2>HOW A TILESET WORKS</h2>
-      <p>THE PNG IS A 5×5 GRID OF 100px CELLS. TILE NUMBER <code>i</code> = <code>row*5 + col</code>.</p>
-      <p>TO DRAW IT: <code>sx=(i%5)*100, sy=floor(i/5)*100</code>, THEN COPY THAT 100×100 SQUARE TO <code>(x*size, y*size)</code>.</p>
+      <p id="hw1"></p>
+      <p id="hw2"></p>
       <p>THE MAP ITSELF IS JUST A GRID OF NUMBERS. LEFT-SIDE WALLS ARE THE RIGHT-SIDE ONES FLIPPED, SO YOU ONLY DRAW ONE.</p>
     </div>
   </aside>
@@ -132,8 +141,12 @@ kbd{border:1px solid var(--hi);border-radius:3px;padding:0 4px;color:var(--gold)
 // CONFIG — EDIT THESE
 // =====================================================================
 const MAP_DIR = 'assets/images/map/';
-// TRIED IN ORDER. YOUR FILE IS SAVED AS "sprite_01 (17).png" IN THE REPO RIGHT NOW.
-const TILESET_CANDIDATES = [MAP_DIR + 'tileset_test.png', MAP_DIR + 'sprite_01 (17).png'];
+// EACH TILESET = ONE PNG (A 5×5 GRID) + THE LAYOUT (WHAT EACH SLOT MEANS) IT FOLLOWS.
+// srcs ARE TRIED IN ORDER. THE FIRST TILESET IN THE LIST IS THE DEFAULT.
+const TILESETS = [
+  {id:'basic', name:'BASIC TILESET', layout:'template', srcs:[MAP_DIR + 'basic_tileset.png']},
+  {id:'first', name:'FIRST TEST SHEET (OLD LAYOUT)', layout:'legacy', srcs:[MAP_DIR + 'tileset_test.png', MAP_DIR + 'sprite_01 (17).png']},
+];
 const SHEET_COLS = 5;
 let   TILE = 100;                 // SOURCE CELL SIZE IN PX (RE-READ FROM IMAGE ON LOAD)
 
@@ -156,21 +169,49 @@ const MASK0 = [
 ];
 const COLS = MASK0[0].length, ROWS = MASK0.length;
 
-// SPECIAL CELLS THAT BYPASS THE AUTOTILER (x,y,tile,flip)
-const OVERRIDES0 = [
-  [12,11,17,false],[13,11,18,false],[14,11,18,false],[15,11,17,true],   // POOL
-];
 // A LEDGE ROW (NOT SOLID) — PAINTED INTO MASK AT LOAD
 const LEDGES0 = [[18,5],[19,5],[20,5],[21,5]];
 
-// TILE ROLES (MY GUESSES) — SHORT LABELS FOR THE PALETTE
-const ROLE = [
-  'CEIL','CEIL','CEIL','WALL','AIR',
-  'LEDGE','LEDGE','LEDGE','WALL','AIR',
-  'FILL','FILL','FILL','CORNER','CORNER',
-  'FLOOR','FLOOR-C','POOL-END','POOL','BACKWALL',
-  'TRIM','TRIM','FLOOR-2','FLOOR-2','BACKWALL',
-];
+// LAYOUTS: WHAT EACH OF THE 25 SLOTS MEANS + HOW THE AUTOTILER PICKS THEM.
+//   roles    SHORT LABELS FOR THE PALETTE
+//   air/back SLOTS USED FOR EMPTY CELLS / THE BACK WALL
+//   inset    DEFAULT EDGE CROP (SOURCE PX) — 0 SHOWS THE TRUE ALIGNMENT
+//   backDim  DARKENING OVER THE BACK WALL (0..1)
+//   view     DEFAULT TOGGLES (FOR CHECKING TILES, DECOR + LIGHTING ARE OFF)
+//   carve    CELLS TURNED INTO AIR AT LOAD (A PIT THAT USES EVERY CORNER TYPE)
+//   overrides  CELLS THAT BYPASS THE AUTOTILER: [x,y,tile,flip]
+const LAYOUTS = {
+  template: {
+    // MATCHES tileset_template.png
+    roles:[
+      'FILL A','FILL B','FILL C','BACK A','BACK B',
+      'FLOOR A','FLOOR B','CEIL A','CEIL B','AIR',
+      'WALL A','WALL B','OUTER 1','OUTER 2','INNER 1',
+      'INNER 2','PLAT MID','PLAT END','LEDGE MID','LEDGE END',
+      'ACCENT A','ACCENT B','TRIM A','TRIM B','SPARE',
+    ],
+    air:[9], back:[3,4], inset:0, backDim:0,
+    view:{decor:false, light:false}, selTile:5,
+    carve:[[12,11],[13,11],[14,11],[15,11]], overrides:[],
+    auto: (x,y) => autoTileTemplate(x,y),
+    info:'SLOTS FOLLOW tileset_template.png',
+  },
+  legacy: {
+    // THE FIRST 500×500 TEST SHEET
+    roles:[
+      'CEIL','CEIL','CEIL','WALL','AIR',
+      'LEDGE','LEDGE','LEDGE','WALL','AIR',
+      'FILL','FILL','FILL','CORNER','CORNER',
+      'FLOOR','FLOOR-C','POOL-END','POOL','BACKWALL',
+      'TRIM','TRIM','FLOOR-2','FLOOR-2','BACKWALL',
+    ],
+    air:[4,4,4,4,9], back:[19,24,24], inset:4, backDim:.66,
+    view:{decor:true, light:true}, selTile:16,
+    carve:[], overrides:[[12,11,17,false],[13,11,18,false],[14,11,18,false],[15,11,17,true]],   // POOL
+    auto: (x,y) => autoTileLegacy(x,y),
+    info:'MY GUESSES AT THE OLD SHEET’S SLOTS',
+  },
+};
 
 // DECOR (POSITIONS IN TILE UNITS)
 const COLUMNS = [{x:4,y0:2,y1:8},{x:11,y0:2,y1:10},{x:16,y0:2,y1:10}]; // ROWS INCLUSIVE
@@ -197,7 +238,7 @@ const cv = $('view'), ctx = cv.getContext('2d');
 const baked = document.createElement('canvas');
 const lightC = document.createElement('canvas');
 let mask = [], over = new Map();
-let tileImg = null, tileURL = '';
+let tileImg = null, tileURL = '', LAYOUT = null, CUR = null;
 const IMG = {};
 const opts = {grid:false, ids:false, back:true, decor:true, light:true, anim:true, zoom:.55, inset:4, amb:.45};
 let tool = 'solid', selTile = 16, TS = 55, U = .55, DPR = 1, dirty = true, hover = null;
@@ -205,8 +246,8 @@ let tool = 'solid', selTile = 16, TS = 55, U = .55, DPR = 1, dirty = true, hover
 function loadImg(src){
   return new Promise((res,rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=()=>rej(src); i.src = src; });
 }
-async function loadTileset(){
-  for(const s of TILESET_CANDIDATES){ try{ const i = await loadImg(s); tileURL = s; return i; }catch(e){} }
+async function loadTileset(ts){
+  for(const s of ts.srcs){ try{ const i = await loadImg(s); tileURL = s; return i; }catch(e){} }
   return null;
 }
 const DECOR_FILES = {
@@ -220,8 +261,9 @@ const DECOR_FILES = {
 function resetMap(){
   mask = MASK0.map(r => r.split(''));
   for(const [x,y] of LEDGES0) mask[y][x] = '=';
+  for(const [x,y] of LAYOUT.carve) mask[y][x] = '.';
   over = new Map();
-  for(const [x,y,i,fx] of OVERRIDES0) over.set(x+','+y, {i, fx});
+  for(const [x,y,i,fx] of LAYOUT.overrides) over.set(x+','+y, {i, fx});
   dirty = true;
 }
 function kind(x,y){ if(x<0||y<0||x>=COLS||y>=ROWS) return '#'; return mask[y][x]; }
@@ -229,7 +271,47 @@ const isAir = (x,y) => kind(x,y) !== '#';
 function hash(x,y){ let h = (x*374761393 + y*668265263)|0; h = (h ^ (h>>>13)) * 1274126177 | 0; return (h ^ (h>>>16))>>>0; }
 const pick = (a,x,y) => a[hash(x,y) % a.length];
 
-function autoTile(x,y){
+const autoTile = (x,y) => LAYOUT.auto(x,y);
+
+// AUTOTILER FOR THE TEMPLATE LAYOUT (tileset_template.png).
+// IT LOOKS AT WHICH NEIGHBOURS ARE AIR AND PICKS A SLOT. "fx" = FLIP HORIZONTALLY.
+function autoTileTemplate(x,y){
+  const k = kind(x,y);
+  if(k === '='){            // THIN LEDGE: END CAP WHERE THE NEXT CELL ISN'T A LEDGE
+    const l = kind(x-1,y) === '=', r = kind(x+1,y) === '=';
+    if(l && r) return {i:18, fx:false};
+    if(l && !r) return {i:19, fx:true};
+    return {i:19, fx:false};
+  }
+  const U_ = isAir(x,y-1), D = isAir(x,y+1), L = isAir(x-1,y), R = isAir(x+1,y);
+  if(U_ && D){              // PLATFORM: AIR ABOVE AND BELOW
+    if(L) return {i:17, fx:false};
+    if(R) return {i:17, fx:true};
+    return {i:16, fx:false};
+  }
+  // OUTER CORNERS (AIR ON TWO SIDES)
+  if(U_ && L) return {i:12, fx:false};
+  if(U_ && R) return {i:12, fx:true};
+  if(D && L)  return {i:13, fx:false};
+  if(D && R)  return {i:13, fx:true};
+  // EDGES (AIR ON ONE SIDE)
+  if(U_) return {i:pick([5,6],x,y), fx:false};
+  if(D)  return {i:pick([7,8],x,y), fx:false};
+  if(L)  return {i:pick([10,11],x,y), fx:false};
+  if(R)  return {i:pick([10,11],x,y), fx:true};
+  // INNER CORNERS (ONLY A DIAGONAL NEIGHBOUR IS AIR)
+  if(isAir(x-1,y-1)) return {i:14, fx:false};
+  if(isAir(x+1,y-1)) return {i:14, fx:true};
+  if(isAir(x-1,y+1)) return {i:15, fx:false};
+  if(isAir(x+1,y+1)) return {i:15, fx:true};
+  // DEEP INSIDE THE ROCK
+  if(y === ROWS-1) return {i:pick([22,23],x,y), fx:false};      // MAP BOTTOM EDGE
+  if(hash(x+101,y*5+17) % 19 === 0) return {i:pick([20,21],x,y), fx:false};   // RARE RUNE TILE
+  return {i:pick([0,1,2],x,y), fx:false};
+}
+
+// AUTOTILER FOR THE FIRST TEST SHEET (OLD LAYOUT, KEPT FOR COMPARISON)
+function autoTileLegacy(x,y){
   const k = kind(x,y);
   if(k === '=') return {i:pick([5,6,7],x,y), fx:false};
   const U_ = isAir(x,y-1), D = isAir(x,y+1), L = isAir(x-1,y), R = isAir(x+1,y);
@@ -292,17 +374,19 @@ function bake(){
   // AIR
   for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
     if(kind(x,y) === '#' || over.has(x+','+y)) continue;
-    drawTile(c, pick([4,4,4,4,9],x,y), false, x*TS, y*TS, TS, ins);
+    drawTile(c, pick(LAYOUT.air,x,y), false, x*TS, y*TS, TS, ins);
   }
   // BACK WALL (MASONRY, DIMMED)
   if(opts.back){
     const B = BACKWALL_RECT;
     for(let y=B.y0;y<=B.y1;y++) for(let x=B.x0;x<=B.x1;x++){
       if(kind(x,y) === '#') continue;
-      drawTile(c, pick([19,24,24],x,y), false, x*TS, y*TS, TS, ins);
+      drawTile(c, pick(LAYOUT.back,x,y), false, x*TS, y*TS, TS, ins);
     }
-    c.fillStyle = 'rgba(14,0,34,.66)';
-    for(let y=B.y0;y<=B.y1;y++) for(let x=B.x0;x<=B.x1;x++) if(kind(x,y) !== '#') c.fillRect(x*TS,y*TS,TS,TS);
+    if(LAYOUT.backDim > 0){
+      c.fillStyle = `rgba(14,0,34,${LAYOUT.backDim})`;
+      for(let y=B.y0;y<=B.y1;y++) for(let x=B.x0;x<=B.x1;x++) if(kind(x,y) !== '#') c.fillRect(x*TS,y*TS,TS,TS);
+    }
     if(IMG.pillars && opts.decor){
       c.globalAlpha = .75;
       for(let x=PILLAR_BAND.x0;x<=PILLAR_BAND.x1;x++){
@@ -437,7 +521,7 @@ function applyZoom(){
 }
 function fit(){
   const st = $('stage'); const w = st.clientWidth - 2;
-  opts.zoom = Math.max(.3, Math.min(1.2, w / (COLS*TILE)));
+  opts.zoom = Math.max(.1, Math.min(1.5, w / (COLS*TILE)));
   $('zoom').value = Math.round(opts.zoom*100);
   applyZoom();
 }
@@ -468,7 +552,7 @@ cv.addEventListener('pointermove', e => {
   const c = cellFrom(e); hover = c; dirty = true;
   if(c){
     const t = tileAt(c.x,c.y), k = kind(c.x,c.y);
-    const desc = t ? `TILE ${t.i} (r${Math.floor(t.i/SHEET_COLS)}c${t.i%SHEET_COLS}) ${ROLE[t.i]}${t.fx?' · FLIPPED':''}${t.ov?' · STAMPED':' · AUTO'}` : 'AIR';
+    const desc = t ? `TILE ${t.i} (r${Math.floor(t.i/SHEET_COLS)}c${t.i%SHEET_COLS}) ${LAYOUT.roles[t.i]}${t.fx?' · FLIPPED':''}${t.ov?' · STAMPED':' · AUTO'}` : 'AIR';
     $('status').textContent = `CELL ${c.x},${c.y} · ${k === '#' ? 'SOLID' : k === '=' ? 'LEDGE' : 'EMPTY'} · ${desc}`;
   }
   if(drawing) paint(c, e.buttons & 2 ? 2 : 0);
@@ -485,7 +569,7 @@ $('bFit').onclick = fit;
 $('bReset').onclick = () => { resetMap(); toast('MAP RESET'); };
 $('bCopy').onclick = () => {
   const o = [...over].map(([k,v]) => { const [x,y] = k.split(',').map(Number); return [x,y,v.i,v.fx]; });
-  const json = JSON.stringify({cols:COLS, rows:ROWS, mask:mask.map(r => r.join('')), overrides:o});
+  const json = JSON.stringify({tileset:CUR.id, cols:COLS, rows:ROWS, mask:mask.map(r => r.join('')), overrides:o});
   (navigator.clipboard ? navigator.clipboard.writeText(json) : Promise.reject()).then(() => toast('MAP JSON COPIED'), () => {
     const ta = document.createElement('textarea'); ta.value = json; document.body.appendChild(ta); ta.select();
     try{ document.execCommand('copy'); toast('MAP JSON COPIED'); }catch(e){ toast('COPY FAILED'); } ta.remove();
@@ -513,8 +597,8 @@ function buildPalette(){
     d.style.backgroundImage = `url("${encodeURI(tileURL)}")`;
     d.style.backgroundSize = '500% 500%';
     d.style.backgroundPosition = `${(i%5)*25}% ${Math.floor(i/5)*25}%`;
-    d.innerHTML = `<i>${i}</i><em>${ROLE[i]}</em>`;
-    d.title = `TILE ${i} · r${Math.floor(i/5)}c${i%5} · ${ROLE[i]}`;
+    d.innerHTML = `<i>${i}</i><em>${LAYOUT.roles[i]}</em>`;
+    d.title = `TILE ${i} · r${Math.floor(i/5)}c${i%5} · ${LAYOUT.roles[i]}`;
     d.onclick = () => {
       selTile = i; document.querySelectorAll('#pal .t').forEach(n => n.classList.remove('sel')); d.classList.add('sel');
       document.querySelector('input[name=tool][value=stamp]').checked = true; tool = 'stamp';
@@ -526,17 +610,39 @@ function buildPalette(){
 // =====================================================================
 // BOOT
 // =====================================================================
-(async function(){
-  $('vInset').textContent = opts.inset + 'px'; $('vAmb').textContent = Math.round(opts.amb*100) + '%';
-  tileImg = await loadTileset();
-  if(!tileImg){
-    $('status').textContent = 'COULD NOT LOAD THE TILESET. PUT THIS FILE IN THE REPO ROOT (NEXT TO index.html) OR EDIT TILESET_CANDIDATES.';
-    cv.width = 600; cv.height = 120; ctx.fillStyle = '#ff69b4'; ctx.font = '14px monospace';
-    ctx.fillText('TILESET NOT FOUND — SEE STATUS BAR', 20, 60); return;
+// SWITCH TO A TILESET: LOAD ITS PNG, APPLY ITS LAYOUT + DEFAULT VIEW, REBUILD EVERYTHING
+async function useTileset(ts){
+  const img = await loadTileset(ts);
+  if(!img){
+    $('status').textContent = 'COULD NOT LOAD ' + ts.srcs.join(' OR ') + ' — PUT THIS FILE NEXT TO index.html SO THE assets/ FOLDER LINES UP.';
+    return false;
   }
-  TILE = Math.round(tileImg.naturalWidth / SHEET_COLS);
-  await Promise.all(Object.entries(DECOR_FILES).map(([k,f]) => loadImg(MAP_DIR + f).then(i => IMG[k] = i, () => {})));
+  tileImg = img; CUR = ts; LAYOUT = LAYOUTS[ts.layout];
+  TILE = Math.round(img.naturalWidth / SHEET_COLS);
+  opts.inset = LAYOUT.inset; $('inset').value = opts.inset; $('vInset').textContent = opts.inset + 'px';
+  for(const [k,id] of [['decor','oDecor'],['light','oLight']]){ opts[k] = LAYOUT.view[k]; $(id).checked = opts[k]; }
+  selTile = LAYOUT.selTile;
+  $('setInfo').textContent = `${img.naturalWidth}×${img.naturalHeight}px · ${TILE}px CELLS · ${LAYOUT.info}`;
+  $('hw1').innerHTML = `THE PNG IS A 5×5 GRID OF <b>${TILE}px</b> CELLS. TILE NUMBER <code>i</code> = <code>row*5 + col</code>.`;
+  $('hw2').innerHTML = `TO DRAW IT: <code>sx=(i%5)*${TILE}, sy=floor(i/5)*${TILE}</code>, THEN COPY THAT ${TILE}×${TILE} SQUARE TO <code>(x*size, y*size)</code>.`;
   resetMap(); buildPalette(); fit();
+  return true;
+}
+
+(async function(){
+  $('vAmb').textContent = Math.round(opts.amb*100) + '%';
+  const sel = $('setSel');
+  TILESETS.forEach((t,i) => { const o = document.createElement('option'); o.value = i; o.textContent = t.name; sel.appendChild(o); });
+  sel.addEventListener('change', async () => { if(await useTileset(TILESETS[+sel.value])) toast('SWITCHED TILESET'); });
+  // DECOR IMAGES (SEPARATE FILES: COLUMNS, TORCHES, FLAMES, CRYSTALS)
+  await Promise.all(Object.entries(DECOR_FILES).map(([k,f]) => loadImg(MAP_DIR + f).then(i => IMG[k] = i, () => {})));
+  // FIRST TILESET THAT LOADS WINS
+  let ok = false;
+  for(let i=0;i<TILESETS.length && !ok;i++){ ok = await useTileset(TILESETS[i]); if(ok) sel.value = i; }
+  if(!ok){
+    cv.width = 600; cv.height = 120; ctx.fillStyle = '#ff69b4'; ctx.font = '14px monospace';
+    ctx.fillText('NO TILESET FOUND — SEE STATUS BAR', 20, 60); return;
+  }
   $('status').textContent = 'HOVER A CELL FOR INFO · PAINT SOLID/AIR AND THE EDGES REPICK THEMSELVES';
   requestAnimationFrame(loop);
 })();
