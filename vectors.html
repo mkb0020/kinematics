@@ -37,7 +37,7 @@
 
 <script>
 // ============================================================
-//  VECTOR SPELL LAB  (performance pass)
+//  VECTOR SPELL LAB  (performance pass + cat wizard sprite)
 //  The big idea: every effect is a function of progress p (0 -> 1).
 //  We never store frames. We just ask "what does the spell look
 //  like at p = 0.37?" and draw shapes from math.
@@ -58,6 +58,8 @@ function resize() {
   W = innerWidth; H = innerHeight;
   cv.width = W * DPR; cv.height = H * DPR;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.imageSmoothingEnabled = true;     // resizing a canvas resets its state,
+  ctx.imageSmoothingQuality = 'high';   // so these live here
 }
 resize();
 
@@ -512,16 +514,18 @@ function spellNova(x, y, th, tilt) {
 }
 
 // ============================================================
-//  SCENE: a tiny placeholder wizard + a faint floor grid
+//  SCENE: the cat wizard + a faint floor grid
 // ============================================================
 const effects = [];
 const wiz = { x: 0, y: 0 };
 let target = { x: 0, y: 0 };
 let floorY = 0;
+let spriteS = 0.7;   // sprite scale, recomputed in layout()
 let bg = null;   // offscreen canvas holding the static background
 
 function layout() {
   floorY = H * 0.78;
+  spriteS = clamp(H / 1100, 0.45, 0.85);
   wiz.x = W * 0.2; wiz.y = floorY;
   if (!target.x) target = { x: W * 0.65, y: floorY - 40 };
 }
@@ -560,40 +564,89 @@ addEventListener('resize', onResize);
 layout();
 buildBackground();
 
-function staffTip(time) {
-  return { x: wiz.x + 34, y: wiz.y - 92 + Math.sin(time * 2) * 2 };
-}
-
 function drawBackground() {
   ctx.drawImage(bg, 0, 0, W, H);
 }
 
-function drawWizard(time) {
-  const { x, y } = wiz;
-  const tip = staffTip(time);
+// ============================================================
+//  CAT WIZARD  (sprite sheet: 15 frames, 300x300 each, one row)
+//    frame 1      base pose           (index 0)
+//    frame 2      ear flick           (index 1)
+//    frame 3      blink               (index 2)
+//    frame 4      paw up / casting    (index 3)
+//    frames 5-15  tail flick          (indices 4..14), drawn UNDER the body
+//  Every frame uses the same 300x300 cell, so layering is just
+//  "draw the tail frame, then draw the body frame at the same spot".
+// ============================================================
+const SPRITE_SRC = 'assets/images/catWizard.png';   // keep this file next to the html
+const FRAME      = 300;               // cell size in the sheet
+const TAIL_FIRST = 4, TAIL_COUNT = 11;
+const TAIL_FPS   = 10;                // tail playback speed (loops 5 -> 15, then back to 5)
+const CAST_HOLD  = 0.6;               // seconds the paw stays up after a cast
+const PAW_TIP    = { x: 282, y: 192 };// paw tip inside frame 4 (cell pixels): spells fire from here
+const FOOT_X     = 150;               // cell x that sits on wiz.x (the cell centre)
+
+const cat = {
+  img: new Image(), ready: false, failed: false,
+  tailT: 0,          // tail clock (seconds)
+  castT: 0,          // >0 while the paw-up pose is showing
+  evt: 0, evtT: 0,   // random idle frame (1 = ear flick, 2 = blink) and how long it has left
+  nextT: rand(1.5, 3.5),   // countdown to the next random ear flick / blink
+};
+cat.img.onload  = () => { cat.ready = true; };
+cat.img.onerror = () => { cat.failed = true; console.warn('Could not load ' + SPRITE_SRC); };
+cat.img.src = SPRITE_SRC;
+
+// Where spells start: the raised paw.
+function castOrigin() {
+  return { x: wiz.x + (PAW_TIP.x - FOOT_X) * spriteS,
+           y: wiz.y - (FRAME - PAW_TIP.y) * spriteS };
+}
+
+function updateCat(dt) {
+  cat.tailT += dt;
+  if (cat.castT > 0) cat.castT -= dt;
+
+  if (cat.evtT > 0) {                       // an ear flick / blink is playing
+    cat.evtT -= dt;
+    if (cat.evtT <= 0) cat.evt = 0;
+  } else {                                  // otherwise count down to the next one
+    cat.nextT -= dt;
+    if (cat.nextT <= 0) {
+      const ear = Math.random() < 0.4;
+      cat.evt  = ear ? 1 : 2;
+      cat.evtT = ear ? 0.22 : 0.14;
+      cat.nextT = rand(2, 5.5);
+    }
+  }
+}
+
+// Tail is a true cycle: frames 5..15, then straight back to 5.
+function tailFrame() {
+  return TAIL_FIRST + Math.floor(cat.tailT * TAIL_FPS) % TAIL_COUNT;
+}
+
+function drawCat() {
+  if (!cat.ready) {
+    ctx.save();
+    ctx.fillStyle = '#b880fa';
+    ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(cat.failed ? 'could not load ' + SPRITE_SRC + ' - put it next to this html file'
+                            : 'loading ' + SPRITE_SRC + '...', wiz.x, wiz.y - 40);
+    ctx.restore();
+    return;
+  }
+  const size = FRAME * spriteS;
+  const dx = wiz.x - FOOT_X * spriteS;
+  const dy = wiz.y - size;                          // bottom of the cell = the floor line
+  const body = cat.castT > 0 ? 3 : cat.evt;         // paw up while casting, else base / ear / blink
+  ctx.drawImage(cat.img, tailFrame() * FRAME, 0, FRAME, FRAME, dx, dy, size, size);   // tail underneath
+  ctx.drawImage(cat.img, body * FRAME,        0, FRAME, FRAME, dx, dy, size, size);   // body on top
+}
+
+function drawTarget() {
   const th = THEMES[themeSel.value];
-  ctx.save();
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  ctx.strokeStyle = th.mid; ctx.fillStyle = '#0A0314';
-  ctx.lineWidth = 2;
-
-  // robe
-  ctx.beginPath(); ctx.moveTo(x - 24, y); ctx.lineTo(x - 12, y - 70); ctx.lineTo(x + 12, y - 70); ctx.lineTo(x + 24, y); ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  // head
-  ctx.beginPath(); ctx.arc(x, y - 82, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  // hat
-  ctx.beginPath(); ctx.moveTo(x - 24, y - 88); ctx.lineTo(x + 24, y - 88);
-  ctx.moveTo(x - 14, y - 88); ctx.lineTo(x + 6, y - 132); ctx.lineTo(x + 14, y - 88);
-  ctx.stroke();
-  // staff
-  ctx.strokeStyle = th.accent;
-  ctx.beginPath(); ctx.moveTo(tip.x, y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
-  ctx.fillStyle = th.bright;
-  ctx.beginPath(); ctx.arc(tip.x, tip.y, 6, 0, Math.PI * 2); ctx.fill();
-  ctx.restore();
-
-  // target marker
   ctx.save();
   ctx.strokeStyle = th.accent; ctx.globalAlpha = 0.45; ctx.lineWidth = 1;
   ctx.beginPath();
@@ -613,7 +666,8 @@ let current = 'circle';
 function cast(name, time) {
   const th = THEMES[themeSel.value];
   const tilt = tiltChk.checked;
-  const tip = staffTip(time);
+  const tip = castOrigin();
+  cat.castT = CAST_HOLD;               // switch to the paw-up frame
   if (name === 'circle')    effects.push(spellCircle(target.x, target.y, th, tilt));
   if (name === 'beam')      effects.push(spellBeam(tip, target, th));
   if (name === 'lightning') effects.push(spellLightning(tip, target, th));
@@ -642,10 +696,11 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);   // clamp so a tab-switch doesn't explode things
   last = now;
-  const time = now / 1000;
 
+  updateCat(dt);
   drawBackground();
-  drawWizard(time);
+  drawCat();
+  drawTarget();
 
   for (let i = effects.length - 1; i >= 0; i--) {
     const fx = effects[i];
