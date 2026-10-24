@@ -37,23 +37,28 @@
 
 <script>
 // ============================================================
-//  VECTOR SPELL LAB
+//  VECTOR SPELL LAB  (performance pass)
 //  The big idea: every effect is a function of progress p (0 -> 1).
 //  We never store frames. We just ask "what does the spell look
 //  like at p = 0.37?" and draw shapes from math.
+//
+//  Perf notes:
+//   - no shadowBlur anywhere (glow comes from layered strokes)
+//   - many segments are batched into one path + one stroke()
+//   - static background is rendered once into an offscreen canvas
+//   - DPR capped at 1.5, opaque canvas
 // ============================================================
 
 const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
+const ctx = cv.getContext('2d', { alpha: false });   // page bg is opaque, skip alpha compositing
 let W, H, DPR;
 
 function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  DPR = Math.min(window.devicePixelRatio || 1, 1.5);  // 2 -> 1.5 cuts filled pixels ~44%
   W = innerWidth; H = innerHeight;
   cv.width = W * DPR; cv.height = H * DPR;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-addEventListener('resize', resize);
 resize();
 
 // ---------- Themes (pulled from your palette) ----------
@@ -71,14 +76,26 @@ const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
 const easeOutBack = t => { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); };
 
 // ---------- Drawing helpers ----------
-// Stroke the current path with a glow. shadowBlur is the cheap way to get neon.
+// Stroke the current path. Pass blur > 0 to re-enable canvas shadow glow
+// (slow); with blur = 0 we only touch shadowBlur to make sure it's off.
 function glow(c, color, width, blur) {
   c.strokeStyle = color;
   c.lineWidth = width;
-  c.shadowColor = color;
-  c.shadowBlur = blur;
+  if (blur > 0) { c.shadowColor = color; c.shadowBlur = blur; }
+  else c.shadowBlur = 0;
   c.stroke();
 }
+
+// Fake neon without blur: a wide faint stroke under the crisp one.
+// Use sparingly -- it doubles the strokes for whatever it touches.
+function softGlow(c, color, w) {
+  c.save();
+  c.globalAlpha *= 0.25;
+  glow(c, color, w * 4, 0);
+  c.restore();
+  glow(c, color, w, 0);
+}
+
 function circle(c, r) { c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); }
 
 // Star polygon {n/step}. n=6, step=2 -> hexagram. n=5, step=2 -> pentagram.
@@ -109,17 +126,28 @@ function updateSparks(sparks, dt) {
     s.life -= dt * 1.4;
   }
 }
+// Sparks are bucketed into 4 alpha levels so we do 4 strokes total
+// instead of one stroke per spark, but still get a fade-out.
+const SPARK_BUCKETS = 4;
 function drawSparks(c, sparks, color, tilt = 1) {
   c.save();
   c.globalCompositeOperation = 'lighter';
   c.lineCap = 'round';
-  for (const s of sparks) {
-    if (s.life <= 0) continue;
-    c.globalAlpha = clamp(s.life);
+  const baseAlpha = c.globalAlpha;
+  for (let b = 0; b < SPARK_BUCKETS; b++) {
     c.beginPath();
-    c.moveTo(s.x, s.y * 1);
-    c.lineTo(s.x - s.vx * 0.04, s.y - s.vy * 0.04 * tilt);
-    glow(c, color, 2, 10);
+    let any = false;
+    for (const s of sparks) {
+      if (s.life <= 0) continue;
+      const bi = Math.min(SPARK_BUCKETS - 1, Math.floor(clamp(s.life) * SPARK_BUCKETS));
+      if (bi !== b) continue;
+      c.moveTo(s.x, s.y);
+      c.lineTo(s.x - s.vx * 0.04, s.y - s.vy * 0.04 * tilt);
+      any = true;
+    }
+    if (!any) continue;
+    c.globalAlpha = baseAlpha * ((b + 0.5) / SPARK_BUCKETS);
+    glow(c, color, 2, 0);
   }
   c.restore();
 }
@@ -165,7 +193,7 @@ function spellCircle(x, y, th, tilt) {
         c.save();
         c.globalAlpha *= 1 - k;
         circle(c, R * (0.9 + k * 0.5));
-        glow(c, th.accent, 4, 25);
+        glow(c, th.accent, 4, 0);
         c.restore();
       }
 
@@ -179,64 +207,69 @@ function spellCircle(x, y, th, tilt) {
       c.fillStyle = g;
       circle(c, R); c.fill();
 
-      // outer double ring
-      circle(c, R);        glow(c, th.bright, 3, 22);
-      circle(c, R * 0.94); glow(c, th.mid, 1.2, 8);
+      // outer double ring (outer one gets the fake glow)
+      circle(c, R);        softGlow(c, th.bright, 3);
+      circle(c, R * 0.94); glow(c, th.mid, 1.2, 0);
 
-      // tick marks (rotating slowly)
+      // tick marks (rotating slowly) -- batched: short ticks in one path, long ticks in another
       c.save();
       c.rotate(rot0 + s * 0.25);
-      for (let i = 0; i < 72; i++) {
-        const a = (i / 72) * Math.PI * 2;
-        const long = i % 6 === 0;
-        const r1 = R * 0.88, r2 = R * (long ? 0.935 : 0.915);
+      for (const long of [false, true]) {
         c.beginPath();
-        c.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
-        c.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
-        glow(c, long ? th.accent : th.mid, long ? 2 : 1, 8);
+        const r1 = R * 0.88, r2 = R * (long ? 0.935 : 0.915);
+        for (let i = 0; i < 72; i++) {
+          if ((i % 6 === 0) !== long) continue;
+          const a = (i / 72) * Math.PI * 2;
+          const ca = Math.cos(a), sa = Math.sin(a);
+          c.moveTo(ca * r1, sa * r1);
+          c.lineTo(ca * r2, sa * r2);
+        }
+        glow(c, long ? th.accent : th.mid, long ? 2 : 1, 0);
       }
       c.restore();
 
       // rune ring (rotates the other way)
-      circle(c, R * 0.84); glow(c, th.mid, 1.2, 8);
-      circle(c, R * 0.66); glow(c, th.mid, 1.2, 8);
+      circle(c, R * 0.84); glow(c, th.mid, 1.2, 0);
+      circle(c, R * 0.66); glow(c, th.mid, 1.2, 0);
       c.save();
       c.rotate(-s * 0.4);
       const gs = R * 0.05;
+      // Build every glyph into ONE path (points are transformed as they're added),
+      // then stroke once. 72 strokes -> 1.
+      c.beginPath();
       for (let i = 0; i < glyphs.length; i++) {
         const a = (i / glyphs.length) * Math.PI * 2;
         c.save();
         c.translate(Math.cos(a) * R * 0.75, Math.sin(a) * R * 0.75);
         c.rotate(a + Math.PI / 2);
         for (const sg of glyphs[i]) {
-          c.beginPath();
           c.moveTo(sg[0] * gs, sg[1] * gs);
           c.lineTo(sg[2] * gs, sg[3] * gs);
-          glow(c, th.bright, 1.6, 10);
         }
         c.restore();
       }
+      glow(c, th.bright, 1.6, 0);
       c.restore();
 
       // dashed ring
       c.save();
       c.rotate(s * 0.7);
       c.setLineDash([R * 0.05, R * 0.03]);
-      circle(c, R * 0.58); glow(c, th.accent, 2, 12);
+      circle(c, R * 0.58); glow(c, th.accent, 2, 0);
       c.restore();
 
       // hexagram = two triangles
       starPath(c, 6, R * 0.6, -s * 0.5 + rot0, 2);
-      glow(c, th.accent, 2, 16);
+      softGlow(c, th.accent, 2);
 
       // inner pentagram
       starPath(c, 5, R * 0.3, s * 1.2, 2);
-      glow(c, th.bright, 2, 16);
-      circle(c, R * 0.32); glow(c, th.mid, 1.5, 10);
+      glow(c, th.bright, 2, 0);
+      circle(c, R * 0.32); glow(c, th.mid, 1.5, 0);
 
       // hot core
       circle(c, R * 0.05 + Math.sin(s * 6) * 2);
-      c.fillStyle = th.core; c.shadowColor = th.bright; c.shadowBlur = 30; c.fill();
+      c.fillStyle = th.core; c.fill();
 
       c.restore();
     },
@@ -293,27 +326,27 @@ function spellBeam(from, to, th) {
       if (fire > 0) {
         // the straight core beam, 4 layers
         const layers = [
-          [th.dark,   w * 1.6, 40, 0.55],
-          [th.mid,    w * 1.0, 28, 0.8],
-          [th.bright, w * 0.55, 18, 1],
-          [th.core,   w * 0.22, 10, 1],
+          [th.dark,   w * 1.6, 0.55],
+          [th.mid,    w * 1.0, 0.8],
+          [th.bright, w * 0.55, 1],
+          [th.core,   w * 0.22, 1],
         ];
-        for (const [col, lw, bl, al] of layers) {
+        for (const [col, lw, al] of layers) {
           c.globalAlpha = al * Math.max(0, fade);
           c.beginPath(); c.moveTo(0, 0); c.lineTo(reach, 0);
-          glow(c, col, Math.max(0.1, lw), bl);
+          glow(c, col, Math.max(0.1, lw), 0);
         }
 
         // two rippling accent strands that twist around the beam
         c.globalAlpha = Math.max(0, fade);
         for (const side of [1, -1]) {
           c.beginPath();
-          for (let x = 0; x <= reach; x += 6) {
+          for (let x = 0; x <= reach; x += 10) {
             const env = Math.sin((x / Math.max(reach, 1)) * Math.PI);   // pinch at both ends
             const y = Math.sin(x * 0.06 - this.t * 28) * w * 0.9 * side * env;
             x === 0 ? c.moveTo(x, y) : c.lineTo(x, y);
           }
-          glow(c, th.accent, 2, 14);
+          glow(c, th.accent, 2, 0);
         }
       }
       c.restore();
@@ -331,7 +364,7 @@ function spellBeam(from, to, th) {
         c.fillStyle = ig;
         c.beginPath(); c.arc(0, 0, 80, 0, Math.PI * 2); c.fill();
         circle(c, 20 + easeOutCubic(k) * 110);
-        glow(c, th.accent, lerp(5, 1, k), 20);
+        glow(c, th.accent, lerp(5, 1, k), 0);
         c.restore();
         drawSparks(c, sparks, th.bright);
       }
@@ -345,8 +378,9 @@ function spellBeam(from, to, th) {
 //  Midpoint displacement: take a straight line, split it in half,
 //  nudge the middle sideways, repeat. Redo it every few ms so it
 //  flickers like real electricity.
+//  (5 iterations = 33 points, 4 = 17. Was 7 = 129.)
 // ============================================================
-function jag(a, b, disp, iters = 7) {
+function jag(a, b, disp, iters = 5) {
   let pts = [a, b];
   for (let i = 0; i < iters; i++) {
     const out = [pts[0]];
@@ -369,14 +403,14 @@ function spellLightning(from, to, th) {
 
   function rebuild() {
     bolts = [];
-    const main = jag(from, to, len * 0.28);
+    const main = jag(from, to, len * 0.28, 5);
     bolts.push({ pts: main, w: 1 });
     const branches = 4 + Math.floor(Math.random() * 3);
     for (let i = 0; i < branches; i++) {
       const base = main[Math.floor(rand(0.15, 0.85) * main.length)];
       const a = Math.atan2(to.y - from.y, to.x - from.x) + rand(-1.1, 1.1);
       const l = len * rand(0.1, 0.28);
-      bolts.push({ pts: jag(base, { x: base.x + Math.cos(a) * l, y: base.y + Math.sin(a) * l }, l * 0.5, 5), w: 0.45 });
+      bolts.push({ pts: jag(base, { x: base.x + Math.cos(a) * l, y: base.y + Math.sin(a) * l }, l * 0.5, 4), w: 0.45 });
     }
   }
   rebuild();
@@ -397,17 +431,18 @@ function spellLightning(from, to, th) {
 
       for (const b of bolts) {
         const layers = [
-          [th.mid,    9 * b.w, 30],
-          [th.bright, 4 * b.w, 18],
-          [th.core,   1.6 * b.w, 8],
+          [th.mid,    9 * b.w],
+          [th.bright, 4 * b.w],
+          [th.core,   1.6 * b.w],
         ];
-        for (const [col, lw, bl] of layers) {
+        for (const [col, lw] of layers) {
           c.beginPath();
           b.pts.forEach((pt, i) => i ? c.lineTo(pt.x, pt.y) : c.moveTo(pt.x, pt.y));
-          glow(c, col, lw, bl);
+          glow(c, col, lw, 0);
         }
       }
       // flash at both ends
+      c.shadowBlur = 0;
       for (const [pt, r] of [[from, 28], [to, 60]]) {
         const g = c.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, r);
         g.addColorStop(0, th.core); g.addColorStop(0.35, th.bright); g.addColorStop(1, th.dark + '00');
@@ -465,7 +500,7 @@ function spellNova(x, y, th, tilt) {
         c.scale(1, ty);
         c.globalAlpha = (1 - k) * al;
         circle(c, maxR * size * e);
-        glow(c, col, lerp(14, 1, k), 24);
+        glow(c, col, lerp(14, 1, k), 0);
         c.restore();
       }
 
@@ -483,44 +518,54 @@ const effects = [];
 const wiz = { x: 0, y: 0 };
 let target = { x: 0, y: 0 };
 let floorY = 0;
+let bg = null;   // offscreen canvas holding the static background
 
 function layout() {
   floorY = H * 0.78;
   wiz.x = W * 0.2; wiz.y = floorY;
   if (!target.x) target = { x: W * 0.65, y: floorY - 40 };
 }
+
+// Render the background ONCE (and again on resize), then just drawImage it each frame.
+function buildBackground() {
+  bg = document.createElement('canvas');
+  bg.width = W * DPR; bg.height = H * DPR;
+  const b = bg.getContext('2d');
+  b.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  const g = b.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0A0314'); g.addColorStop(0.7, '#230141'); g.addColorStop(1, '#0A0314');
+  b.fillStyle = g; b.fillRect(0, 0, W, H);
+
+  // floor grid
+  b.strokeStyle = '#5b48a9';
+  b.lineWidth = 1;
+  b.globalAlpha = 0.35;
+  b.beginPath(); b.moveTo(0, floorY); b.lineTo(W, floorY); b.stroke();
+  b.globalAlpha = 0.14;
+  b.beginPath();
+  for (let i = 1; i < 8; i++) {
+    const y = floorY + Math.pow(i, 1.7) * 6;
+    b.moveTo(0, y); b.lineTo(W, y);
+  }
+  for (let i = -20; i <= 20; i++) {
+    b.moveTo(W / 2 + i * 40, floorY);
+    b.lineTo(W / 2 + i * 160, H);
+  }
+  b.stroke();
+}
+
+function onResize() { resize(); layout(); buildBackground(); }
+addEventListener('resize', onResize);
 layout();
-addEventListener('resize', layout);
+buildBackground();
 
 function staffTip(time) {
   return { x: wiz.x + 34, y: wiz.y - 92 + Math.sin(time * 2) * 2 };
 }
 
-function drawBackground(time) {
-  ctx.fillStyle = '#0A0314';
-  ctx.fillRect(0, 0, W, H);
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#0A0314'); g.addColorStop(0.7, '#230141'); g.addColorStop(1, '#0A0314');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-
-  // floor grid
-  ctx.save();
-  ctx.strokeStyle = '#5b48a9';
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.35;
-  ctx.beginPath(); ctx.moveTo(0, floorY); ctx.lineTo(W, floorY); ctx.stroke();
-  ctx.globalAlpha = 0.14;
-  for (let i = 1; i < 8; i++) {
-    const y = floorY + Math.pow(i, 1.7) * 6;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
-  for (let i = -20; i <= 20; i++) {
-    ctx.beginPath();
-    ctx.moveTo(W / 2 + i * 40, floorY);
-    ctx.lineTo(W / 2 + i * 160, H);
-    ctx.stroke();
-  }
-  ctx.restore();
+function drawBackground() {
+  ctx.drawImage(bg, 0, 0, W, H);
 }
 
 function drawWizard(time) {
@@ -530,7 +575,7 @@ function drawWizard(time) {
   ctx.save();
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   ctx.strokeStyle = th.mid; ctx.fillStyle = '#0A0314';
-  ctx.shadowColor = th.mid; ctx.shadowBlur = 12; ctx.lineWidth = 2;
+  ctx.lineWidth = 2;
 
   // robe
   ctx.beginPath(); ctx.moveTo(x - 24, y); ctx.lineTo(x - 12, y - 70); ctx.lineTo(x + 12, y - 70); ctx.lineTo(x + 24, y); ctx.closePath();
@@ -542,9 +587,9 @@ function drawWizard(time) {
   ctx.moveTo(x - 14, y - 88); ctx.lineTo(x + 6, y - 132); ctx.lineTo(x + 14, y - 88);
   ctx.stroke();
   // staff
-  ctx.strokeStyle = th.accent; ctx.shadowColor = th.accent;
+  ctx.strokeStyle = th.accent;
   ctx.beginPath(); ctx.moveTo(tip.x, y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
-  ctx.fillStyle = th.bright; ctx.shadowColor = th.bright; ctx.shadowBlur = 20;
+  ctx.fillStyle = th.bright;
   ctx.beginPath(); ctx.arc(tip.x, tip.y, 6, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 
@@ -599,7 +644,7 @@ function frame(now) {
   last = now;
   const time = now / 1000;
 
-  drawBackground(time);
+  drawBackground();
   drawWizard(time);
 
   for (let i = effects.length - 1; i >= 0; i--) {

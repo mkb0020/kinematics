@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Drawing Tool Prototype</title>
+<title>OSP - DRAW</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
@@ -12,7 +12,7 @@
 :root{
   --bg0:#170032; --bg1:#240140; --acc:#830cdeaf; --acc2:#a45affa7;
   --cy:#00ffffb9; --pk:#ff69b4; --mint:#67febdd2; --mag:#dc4ce8;
-  --mute:#9090C0; --soft:#C4C3D0; --txt:#DBE2E9;
+  --r:3px; --mute:#9090C0; --soft:#C4C3D0; --txt:#DBE2E9;
   --ui:'OrbitronLocal','Orbitron','Segoe UI',system-ui,sans-serif;
   --mono:'Share Tech Mono','Consolas','Courier New',monospace;
 }
@@ -44,31 +44,31 @@ header{grid-area:head;display:flex;align-items:center;gap:7px;padding:0 10px;
 header h1{font-size:11px;letter-spacing:.16em;font-weight:700;color:var(--cy);text-shadow:0 0 10px #00ffff88}
 header .spacer{flex:1}
 header .hsep{width:1px;height:18px;background:#830cde88;flex:none}
-header .tb.hb{width:30px;height:26px;border-radius:0px}
+header .tb.hb{width:30px;height:auto;align-self:stretch;border-radius:var(--r)}
 header .tb.hb svg{width:16px;height:16px}
-.hsel{height:30px;padding:0 6px;font-size:10px;letter-spacing:.04em;flex:none}
+.hsel{height:auto;align-self:stretch;border-radius:var(--r);padding:0 6px;font-size:10px;letter-spacing:.04em;flex:none}
 .hsize{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--mute)}
 .hsize input{width:110px;height:22px}
 .hsize output{color:var(--cy);font-size:12px;min-width:24px;letter-spacing:0}
 .hbtn{font-family:var(--ui);font-size:10px;letter-spacing:.08em;color:var(--soft);background:#37025a55;
-  border:1px solid #830cde88;border-radius:0px;height:30px;padding:0 10px;cursor:pointer;flex:none}
+  border:1px solid #830cde88;border-radius:var(--r);height:auto;align-self:stretch;padding:0 10px;cursor:pointer;flex:none}
 .hbtn:hover{border-color:var(--acc2);color:#fff}
 .hbtn.active{border-color:var(--cy);color:var(--cy);background:#00ffff14}
 .popmenu{position:fixed;top:38px;left:0;z-index:30;width:238px;padding:10px 10px 6px;background:var(--bg0);
-  border:1px solid var(--acc2);border-radius:0px;box-shadow:0 0 26px #830cde99,0 10px 30px #000a}
+  border:1px solid var(--acc2);border-radius:var(--r);box-shadow:0 0 26px #830cde99,0 10px 30px #000a}
 .popmenu[hidden]{display:none}
 .popmenu input[type=number]{width:76px}
 .popmenu.wide{width:400px;max-height:calc(100vh - 50px);overflow-y:auto}
 .popmenu .keys{columns:2;column-gap:14px}
 .popmenu .keys div{break-inside:avoid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .popmenu .keys span{display:inline-block;min-width:34px}
-.titlebtn{font:inherit;letter-spacing:inherit;color:inherit;text-shadow:inherit;background:none;border:0;cursor:pointer;padding:3px 6px;border-radius:6px}
+.titlebtn{font:inherit;letter-spacing:inherit;color:inherit;text-shadow:inherit;background:none;border:0;cursor:pointer;padding:3px 6px;border-radius:var(--r)}
 .titlebtn:hover,.titlebtn.active{background:#00ffff14}
 .titlebtn span{font-size:10px;opacity:.7}
 .hbtn.all{border-color:var(--pk);color:var(--pk);box-shadow:0 0 12px #ff69b455}
 .tb{position:relative}
 .tb[data-tool=move].allf::after{content:'ALL';position:absolute;right:-3px;bottom:-3px;font-family:var(--mono);font-size:8px;letter-spacing:.05em;
-  padding:1px 3px;border-radius:4px;background:var(--pk);color:#170032;box-shadow:0 0 8px #ff69b4aa;pointer-events:none}
+  padding:1px 3px;border-radius:var(--r);background:var(--pk);color:#170032;box-shadow:0 0 8px #ff69b4aa;pointer-events:none}
 #stApply.all{color:var(--pk)}
 .popmenu h2{font-family:var(--mono);font-size:10px;font-weight:400;letter-spacing:.12em;color:var(--mute);text-transform:uppercase;margin-bottom:8px}
 .popmenu h2 .sub{color:#6a6a96;letter-spacing:.04em;text-transform:none}
@@ -78,20 +78,19 @@ header .tb.hb svg{width:16px;height:16px}
 #stAuto.bad{color:var(--pk)}
 #busy{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:#170032b8;cursor:progress}
 #busy[hidden],#recover[hidden]{display:none}
-#busyMsg{font-family:var(--ui);font-weight:600;font-size:13px;letter-spacing:.1em;color:var(--cy);padding:12px 22px;border:1px solid var(--cy);border-radius:10px;background:#170032;box-shadow:0 0 22px #00ffff55}
+#busyMsg{font-family:var(--ui);font-weight:600;font-size:13px;letter-spacing:.1em;color:var(--cy);padding:12px 22px;border:1px solid var(--cy);border-radius:var(--r);background:#170032;box-shadow:0 0 22px #00ffff55}
 #recover{position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:8px 12px;
-  background:var(--bg0);border:1px solid var(--pk);border-radius:10px;box-shadow:0 0 24px #ff69b466,0 10px 30px #000a;
+  background:var(--bg0);border:1px solid var(--pk);border-radius:var(--r);box-shadow:0 0 24px #ff69b466,0 10px 30px #000a;
   font-family:var(--mono);font-size:12px;color:var(--txt);white-space:nowrap}
 #recover .pill{padding:6px 12px;font-size:11px}
 
 /* toolbar */
 #toolbar{grid-area:tool;display:flex;flex-direction:column;gap:12px;padding:10px;
-  background:var(--bg0);border-right:1px solid #830cde88;overflow-y:auto}
+  background:var(--bg0);border-right:1px solid #830cde88;overflow-y:auto; overflow-x:hidden}
 .toolgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
 #toolbar .tb{width:100%;height:36px;min-width:0}
 #toolbar .tb svg{width:18px;height:18px}
-#colorSec{margin-top:auto}
-.tb{width:40px;height:40px;border-radius:3px;border:1px solid #830cde88;background:#37025a55;color:var(--soft);
+.tb{width:40px;height:40px;border-radius:var(--r);border:1px solid #830cde88;background:#37025a55;color:var(--soft);
   display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .12s;flex:none}
 .tb svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .tb:hover{border-color:var(--acc2);color:#fff;background:#830cde44}
@@ -110,7 +109,7 @@ header .tb.hb svg{width:16px;height:16px}
 #stage.panning{cursor:grabbing}
 #world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
 #world>*{position:absolute;left:0;top:0;width:1000px;height:1000px}
-#paper{background:#fff;box-shadow:0 0 0 1px var(--acc2),0 0 40px #830cde88,0 0 90px #00ffff22}
+#paper{background:#fff;box-shadow:0 0 0 1px var(--acc2),0 0 40px #830cde44,0 0 90px #00ffff22}
 #view,#overlay,#onion,#ruler{pointer-events:none}
 #ruler[hidden]{display:none}
 #world.pixview canvas{image-rendering:pixelated}
@@ -119,7 +118,7 @@ header .tb.hb svg{width:16px;height:16px}
 #cursor.erase{border-color:var(--pk)}
 #chainBar{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;gap:8px;z-index:6}
 #chainBar[hidden]{display:none}
-.pill{font-family:var(--ui);font-weight:600;font-size:12px;letter-spacing:.08em;padding:8px 14px;border-radius:20px;
+.pill{font-family:var(--ui);font-weight:600;font-size:12px;letter-spacing:.08em;padding:8px 14px;border-radius:var(--r);
   border:1px solid var(--cy);background:#170032ee;color:var(--cy);cursor:pointer;box-shadow:0 0 14px #00ffff44}
 .pill.warn{border-color:var(--pk);color:var(--pk);box-shadow:0 0 14px #ff69b444}
 .pill:active{transform:scale(.95)}
@@ -132,14 +131,14 @@ header .tb.hb svg{width:16px;height:16px}
 .sec h2 output{color:var(--cy)}
 input[type=range]{width:100%;accent-color:var(--acc2);height:22px}
 .row{display:flex;gap:8px;align-items:center}
-input[type=color]{width:42px;height:30px;border:1px solid var(--acc2);border-radius:1px;background:var(--bg0);padding:2px;cursor:pointer}
+input[type=color]{width:42px;height:30px;border:1px solid var(--acc2);border-radius:var(--r);background:var(--bg0);padding:2px;cursor:pointer}
 .hex{font-family:var(--mono);font-size:13px;color:var(--soft)}
 .swatches{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:7px}
-.sw{aspect-ratio:1;border-radius:2px;border:1px solid #ffffff33;cursor:pointer;min-height:0}
+.sw{aspect-ratio:1;border-radius:var(--r);border:1px solid #ffffff33;cursor:pointer;min-height:0}
 .sw:hover{outline:2px solid var(--cy)}
 .sw.sel{outline:2px solid var(--cy);box-shadow:0 0 10px #00ffff88}
 select,.btn{font-family:var(--ui);font-size:11px;font-weight:600;color:var(--txt);background:var(--bg1);
-  border:1px solid var(--acc);border-radius:1px;padding:5px 8px;cursor:pointer}
+  border:1px solid var(--acc);border-radius:var(--r);padding:5px 8px;cursor:pointer}
 .btn{letter-spacing:.06em;flex:1;text-align:center}
 .btn:hover{border-color:var(--cy);color:var(--cy)}
 .note{font-family:var(--mono);font-size:11.5px;line-height:1.3;color:var(--mute)}
@@ -148,7 +147,7 @@ select,.btn{font-family:var(--ui);font-size:11px;font-weight:600;color:var(--txt
 .keys span{color:var(--mint)}
 
 .sec[hidden]{display:none}
-.seg{display:flex;border:1px solid var(--acc);border-radius:6px;overflow:hidden}
+.seg{display:flex;border:1px solid var(--acc);border-radius:var(--r);overflow:hidden}
 .seg button{flex:1;font-family:var(--ui);font-size:10px;font-weight:600;letter-spacing:.06em;padding:7px 4px;
   background:var(--bg1);color:var(--soft);border:0;cursor:pointer}
 .seg button+button{border-left:1px solid var(--acc)}
@@ -159,14 +158,14 @@ select,.btn{font-family:var(--ui);font-size:11px;font-weight:600;color:var(--txt
 .onion-row input[type=range]{flex:1;min-width:0}
 .onion-row output{font-family:var(--mono);font-size:11px;color:var(--mute);width:30px;text-align:right}
 .tgl{--c:var(--cy);flex:none;width:64px;font-family:var(--ui);font-size:10px;font-weight:600;letter-spacing:.06em;
-  padding:7px 0;border-radius:1px;border:1px solid #ffffff22;background:var(--bg0);color:var(--mute);cursor:pointer}
+  padding:7px 0;border-radius:var(--r);border:1px solid #ffffff22;background:var(--bg0);color:var(--mute);cursor:pointer}
 .tgl.on{border-color:var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
   box-shadow:0 0 10px color-mix(in srgb,var(--c) 40%,transparent)}
 .tgl.prev{--c:#ff3b3b}
 .tgl.next{--c:#00ffff}
 
 input[type=number],#exName{width:54px;font-family:var(--mono);font-size:12px;background:var(--bg1);color:var(--txt);
-  border:1px solid var(--acc);border-radius:1px;padding:5px 6px;-webkit-user-select:text;user-select:text}
+  border:1px solid var(--acc);border-radius:var(--r);padding:5px 6px;-webkit-user-select:text;user-select:text}
 input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 .onion-row[hidden]{display:none}
 #exInfo.warn{color:var(--pk)}
@@ -176,13 +175,13 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 /* layers */
 .sec h2 .sub{color:#6a6a96;letter-spacing:.04em;text-transform:none}
 #layerList{display:flex;flex-direction:column;gap:3px;max-height:200px;overflow-y:auto;margin-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--acc) transparent}
-.lyr{display:flex;align-items:center;gap:6px;padding:3px 5px;min-height:33px;border:1px solid #830cde66;border-radius:1px;background:#37025a33;cursor:pointer}
+.lyr{display:flex;align-items:center;gap:6px;padding:3px 5px;min-height:33px;border:1px solid #830cde66;border-radius:var(--r);background:#37025a33;cursor:pointer}
 .lyr:hover{border-color:var(--acc2)}
 .lyr.sel{border-color:var(--cy);background:#00ffff12;box-shadow:0 0 8px #00ffff44}
 .lyr.off .nm,.lyr.off canvas{opacity:.4}
-.lyr canvas{flex:none;width:28px;height:28px;border-radius:3px;background:repeating-conic-gradient(#2a1347 0 25%,#1d0a38 0 50%) 0 0/8px 8px}
+.lyr canvas{flex:none;width:28px;height:28px;border-radius:var(--r);background:repeating-conic-gradient(#2a1347 0 25%,#1d0a38 0 50%) 0 0/8px 8px}
 .lyr .nm{flex:1;min-width:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lyr .nm input{width:100%;font:inherit;background:var(--bg0);color:var(--txt);border:1px solid var(--cy);border-radius:4px;padding:2px 4px;-webkit-user-select:text;user-select:text}
+.lyr .nm input{width:100%;font:inherit;background:var(--bg0);color:var(--txt);border:1px solid var(--cy);border-radius:var(--r);padding:2px 4px;-webkit-user-select:text;user-select:text}
 .eye{flex:none;width:26px;height:26px;border:0;background:none;color:var(--mute);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
 .eye svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .eye.on{color:var(--cy)}
@@ -194,12 +193,12 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 #strip{grid-area:strip;display:flex;min-width:0;background:var(--bg0);border-top:1px solid #830cde88}
 #stripCtl{flex:none;display:flex;flex-direction:column;justify-content:center;gap:5px;padding:6px 10px;border-right:1px solid #830cde88}
 .ctlrow{display:flex;gap:5px;align-items:center}
-.tb.sm{width:32px;height:32px;border-radius:6px}
+.tb.sm{width:32px;height:32px;border-radius:var(--r)}
 .tb.sm svg{width:17px;height:17px}
 .lyrbtns{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
 .lyrbtns .tb.sm{width:100%;min-width:0;height:28px}
 #target{position:absolute;left:10px;top:8px;z-index:3;pointer-events:none;font-family:var(--mono);font-size:12px;letter-spacing:.06em;
-  padding:4px 10px;border-radius:6px;background:#170032e6;border:1px solid var(--acc2);color:var(--soft);box-shadow:0 0 12px #830cde55}
+  padding:4px 10px;border-radius:var(--r);background:#170032e6;border:1px solid var(--acc2);color:var(--soft);box-shadow:0 0 12px #830cde55}
 #target b{color:var(--cy);font-weight:400}
 #target.locked{border-color:var(--pk)}
 #target .lk{color:var(--pk);margin-left:8px}
@@ -229,7 +228,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 #fpsOut{font-family:var(--mono);font-size:11px;color:var(--cy);min-width:48px}
 #frames{position:relative;flex:1;min-width:0;display:flex;gap:6px;align-items:center;padding:0 10px;
   overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:var(--acc) transparent}
-.fr{position:relative;flex:none;width:62px;height:62px;border:1px solid #830cde88;border-radius:6px;
+.fr{position:relative;flex:none;width:62px;height:62px;border:1px solid #830cde88;border-radius:var(--r);
   overflow:hidden;cursor:pointer;background:#10001f}
 .fr canvas{width:100%;height:100%;display:block;pointer-events:none}
 .fr span{position:absolute;left:3px;bottom:2px;font-family:var(--mono);font-size:10px;color:var(--cy);
@@ -237,6 +236,23 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 .fr:hover{border-color:var(--acc2)}
 .fr.sel{border-color:var(--cy);box-shadow:0 0 12px #00ffff66}
 .fr.over{border-color:var(--pk);box-shadow:0 0 12px #ff69b488}
+
+/* full-canvas modal */
+#popModal{position:fixed;z-index:40;left:0;top:0;width:440px;height:490px;min-width:240px;min-height:290px;max-width:96vw;max-height:96vh;
+  display:flex;flex-direction:column;resize:both;overflow:hidden;background:var(--bg0);border:1px solid var(--acc2);border-radius:var(--r);
+  box-shadow:0 0 26px #830cde99,0 0 60px #00ffff22,0 10px 30px #000a}
+#popModal[hidden]{display:none}
+#popBar{flex:none;display:flex;align-items:center;gap:8px;height:30px;padding:0 4px 0 10px;cursor:move;touch-action:none;
+  background:linear-gradient(90deg,var(--bg1),var(--bg0));border-bottom:1px solid var(--acc)}
+#popTitle{flex:1;min-width:0;font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--cy);text-shadow:0 0 10px #00ffff88;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#popClose{flex:none;width:26px;height:22px;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;color:var(--soft);
+  background:#37025a55;border:1px solid #830cde88;border-radius:var(--r)}
+#popClose svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+#popClose:hover{border-color:var(--pk);color:var(--pk)}
+#popBody{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px;background-color:#10001f;
+  background-image:linear-gradient(#830cde1a 1px,transparent 1px),linear-gradient(90deg,#830cde1a 1px,transparent 1px);background-size:32px 32px,32px 32px}
+#popCanvas{max-width:100%;max-height:100%;aspect-ratio:1/1;width:auto;height:auto;box-shadow:0 0 0 1px var(--acc2),0 0 30px #830cde55}
 
 /* status */
 #status{grid-area:stat;display:flex;align-items:center;gap:16px;padding:0 10px;background:var(--bg1);
@@ -254,7 +270,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
     <h1><button class="titlebtn" id="helpBtn">OSP<span>&#9662;</span></button></h1>
 
     <button class="hbtn" id="fileMenuBtn">FILE &#9662;</button>
-    <button class="hbtn" id="exportMenuBtn">⬇ &#9662;</button>
+    <button class="hbtn" id="exportMenuBtn">EXPORT &#9662;</button>
     <button class="hbtn" id="layerMenuBtn">LAYER &#9662;</button>
     <button class="hbtn active" id="touchAssist">TOUCH ASSIST</button>
     <span class="hsep"></span>
@@ -320,7 +336,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       <div class="onion-row" id="mergeRow">
         <span class="lbl">MERGE</span>
         <input type="range" id="mergeAmt" min="0" max="16" value="4"><output id="mergeOut">4</output>
-        <span class="sep"></span>
+     
       </div>
     </div>
     <div class="sec" id="shapeSec" hidden>
@@ -328,12 +344,12 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       <div class="seg">
         <button data-fill="outline" class="on">OUTLINE</button>
         <button data-fill="filled">FILLED</button>
-        <span class="sep"></span>
+       
       </div>
       <div class="onion-row" id="radiusRow" style="margin-top:8px;margin-bottom:0">
         <span class="lbl">CORNERS</span>
         <input type="range" id="cornerRad" min="0" max="250" value="0"><output id="cornerRadOut">SQUARE</output>
-        <span class="sep"></span>
+       
       </div>
     </div>
     <div class="sec" id="fillSec" hidden>
@@ -515,7 +531,6 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       
       <h2>Color</h2>
       <div class="row"><input type="color" id="color" value="#000000"><span class="hex" id="hex">#000000</span></div>
-      <span class="sep"></span>
       <select id="palSel" style="width:100%;margin-top:7px" aria-label="Color palette"></select>
       <div class="swatches" id="swatches"></div>
       
@@ -528,7 +543,6 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
     <div class="sec">
       <h2>Paper</h2>
       <div class="row"><input type="color" id="paperColor" value="#ffffff"><span class="note">Background only. Not exported.</span></div>
-      <span class="sep"></span>
     </div>
     <div class="sec">
       <h2>Onion skin</h2>
@@ -536,7 +550,6 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
         <button class="tgl prev on" id="onionPrev">&#9664; PREV</button>
         <input type="range" id="onionPrevOp" min="5" max="100" value="35"><output id="onionPrevOut">35%</output>
       </div>
-     <span class="sep"></span>
     </div>
   </aside>
 
@@ -581,6 +594,10 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
   <span id="recoverMsg"></span>
   <button class="pill" id="recoverYes">RESTORE</button>
   <button class="pill warn" id="recoverNo">DISCARD</button>
+</div>
+<div id="popModal" hidden>
+  <div id="popBar"><span id="popTitle">FULL CANVAS</span><button id="popClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+  <div id="popBody"><canvas id="popCanvas" width="1000" height="1000"></canvas></div>
 </div>
 <div id="busy" hidden><div id="busyMsg">Working&hellip;</div></div>
 
@@ -1935,37 +1952,42 @@ const Engine = (() => {
   $('#rulerBtn').addEventListener('click', () => setRuler(!state.ruler));
   try { if (localStorage.getItem('dtRuler') === '1') setRuler(true, true); } catch (err) { /* optional */ }
 
-  /* ---------- full-canvas pop-up: a separate window that mirrors the whole canvas live (drag it to a 2nd monitor) ---------- */
-  let pop = null, popCv = null, popCtx = null, popBg = '', popPix = null, popLbl = '', popEl = null;
-  const popOpen = () => !!(pop && !pop.closed && popCv && popCv.isConnected);
+  /* ---------- full-canvas modal: a floating neon panel that mirrors the whole canvas live (drag the title bar, resize from the corner) ---------- */
+  const popEl = $('#popModal'), popCv = $('#popCanvas'), popCtx = popCv.getContext('2d'), popTitle = $('#popTitle');
+  let popBg = '', popPix = '', popLbl = '', popPlaced = false;
+  const popOpen = () => !popEl.hidden;
   function mirrorPop() {
-    if (!pop) return;
-    if (!popOpen()) { pop = popCv = popCtx = popEl = null; $('#popBtn').classList.remove('active'); return; }
+    if (!popOpen()) return;
     if (popCv.width !== view.width || popCv.height !== view.height) { popCv.width = view.width; popCv.height = view.height; }
     popCtx.clearRect(0, 0, popCv.width, popCv.height); popCtx.drawImage(view, 0, 0);
-    if (popBg !== state.paperColor) { popBg = state.paperColor; popCv.style.background = popBg; }
+    if (popBg !== state.paperColor) { popBg = state.paperColor; popCv.style.backgroundColor = popBg; }
     const px = state.crisp ? 'pixelated' : 'auto'; if (popPix !== px) { popPix = px; popCv.style.imageRendering = px; }
     const lbl = 'FULL CANVAS · FRAME ' + (project.currentFrame + 1) + ' / ' + project.frames.length;
-    if (popLbl !== lbl) { popLbl = lbl; popEl.textContent = lbl; pop.document.title = 'Drawing Tool · ' + lbl; }
+    if (popLbl !== lbl) { popLbl = lbl; popTitle.textContent = lbl; }
   }
-  function togglePop() {
-    if (popOpen()) { pop.close(); pop = null; mirrorPop(); return; }
-    pop = window.open('', 'dtFullCanvas', 'popup=yes,width=620,height=680');
-    if (!pop) { flash('Pop-up was blocked: allow pop-ups for this page'); return; }
-    const d = pop.document;
-    d.open();
-    d.write('<!doctype html><meta charset="utf-8"><title>Drawing Tool</title><style>' +
-      'html,body{margin:0;height:100%;background:#0c001f;color:#00ffff;font:11px/1 ui-monospace,Menlo,Consolas,monospace;overflow:hidden}' +
-      '#w{position:absolute;inset:26px 8px 8px;display:flex;align-items:center;justify-content:center;min-height:0}' +
-      '#c{max-width:100%;max-height:100%;aspect-ratio:1/1;width:auto;height:auto;box-shadow:0 0 0 1px #830cde,0 0 30px #830cde88}' +
-      '#t{position:absolute;left:10px;top:8px;letter-spacing:.12em}</style><div id="t"></div><div id="w"><canvas id="c"></canvas></div>');
-    d.close();
-    popCv = d.getElementById('c'); popEl = d.getElementById('t'); popCtx = popCv.getContext('2d');
-    popBg = popPix = popLbl = '';
-    $('#popBtn').classList.add('active'); mirrorPop(); flash('Full canvas window opened: drag it to your other screen');
+  function setPop(on) {
+    popEl.hidden = !on; $('#popBtn').classList.toggle('active', on);
+    if (!on) return;
+    if (!popPlaced) {                                    // first open: top-right of the screen, beside the right panel
+      popPlaced = true;
+      popEl.style.left = Math.max(8, window.innerWidth - popEl.offsetWidth - 240) + 'px'; popEl.style.top = '44px';
+    }
+    popBg = popPix = popLbl = ''; mirrorPop();
   }
-  $('#popBtn').addEventListener('click', togglePop);
-  window.addEventListener('beforeunload', () => { try { if (popOpen()) pop.close(); } catch (err) { /* ignore */ } });
+  const togglePop = () => setPop(!popOpen());
+  $('#popBtn').addEventListener('click', e => { togglePop(); e.currentTarget.blur(); });
+  $('#popClose').addEventListener('click', () => setPop(false));
+  $('#popBar').addEventListener('pointerdown', e => {   // drag by the title bar, kept on screen
+    if (e.target.closest('button')) return;
+    const r = popEl.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top, bar = e.currentTarget;
+    bar.setPointerCapture(e.pointerId);
+    const move = ev => {
+      popEl.style.left = clamp(ev.clientX - dx, 8 - popEl.offsetWidth + 80, window.innerWidth - 80) + 'px';
+      popEl.style.top = clamp(ev.clientY - dy, 0, window.innerHeight - 30) + 'px';
+    };
+    const up = () => { bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up); };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
+  });
 
   // Always-visible "which frame / which layer am I editing" label (canvas badge, panel title, status bar).
   function updateTarget() {
