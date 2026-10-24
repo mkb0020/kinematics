@@ -10,8 +10,8 @@
 /* Orbitron: uses Orbitron.ttf next to this file if present, else falls back to the Google Fonts link above. */
 @font-face{font-family:"OrbitronLocal";src:url("Orbitron.ttf") format("truetype");font-weight:400 900;font-display:swap}
 :root{
-  --bg0:#170032; --bg1:#37025a; --acc:#830cde; --acc2:#A55AFF;
-  --cy:#00ffff; --pk:#ff69b4; --mint:#67FEBD; --mag:#dc4ce8;
+  --bg0:#170032; --bg1:#240140; --acc:#830cdeaf; --acc2:#a45affa7;
+  --cy:#00ffffb9; --pk:#ff69b4; --mint:#67febdd2; --mag:#dc4ce8;
   --mute:#9090C0; --soft:#C4C3D0; --txt:#DBE2E9;
   --ui:'OrbitronLocal','Orbitron','Segoe UI',system-ui,sans-serif;
   --mono:'Share Tech Mono','Consolas','Courier New',monospace;
@@ -30,7 +30,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--txt);fon
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none}
 #app{display:grid;height:100%;--tw:218px;--pw:218px;--sh:122px;
   grid-template-columns:var(--tw) 1fr var(--pw);
-  grid-template-rows:36px 1fr var(--sh) 26px;
+  grid-template-rows:30px 1fr var(--sh) 20px;
   grid-template-areas:"head head head" "tool stage panel" "strip strip strip" "stat stat stat"}
 
 #app.no-tools{--tw:0px}#app.no-tools #toolbar{display:none}
@@ -38,24 +38,24 @@ html,body{height:100%;overflow:hidden;background:var(--bg0);color:var(--txt);fon
 #app.no-strip{--sh:0px}#app.no-strip #strip{display:none}
 
 /* header */
-header{grid-area:head;display:flex;align-items:center;gap:10px;padding:0 10px;
+header{grid-area:head;display:flex;align-items:center;gap:7px;padding:0 10px;
   background:linear-gradient(90deg,var(--bg1),var(--bg0));border-bottom:1px solid var(--acc);
   box-shadow:0 0 18px #830cde55;z-index:5}
-header h1{font-size:14px;letter-spacing:.16em;font-weight:700;color:var(--cy);text-shadow:0 0 10px #00ffff88}
+header h1{font-size:11px;letter-spacing:.16em;font-weight:700;color:var(--cy);text-shadow:0 0 10px #00ffff88}
 header .spacer{flex:1}
 header .hsep{width:1px;height:18px;background:#830cde88;flex:none}
-header .tb.hb{width:30px;height:28px;border-radius:6px}
+header .tb.hb{width:30px;height:26px;border-radius:0px}
 header .tb.hb svg{width:16px;height:16px}
-.hsel{height:28px;padding:0 6px;font-size:10px;letter-spacing:.04em;flex:none}
+.hsel{height:30px;padding:0 6px;font-size:10px;letter-spacing:.04em;flex:none}
 .hsize{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--mute)}
 .hsize input{width:110px;height:22px}
 .hsize output{color:var(--cy);font-size:12px;min-width:24px;letter-spacing:0}
-.hbtn{font-family:var(--ui);font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--soft);background:#37025a55;
-  border:1px solid #830cde88;border-radius:6px;height:28px;padding:0 10px;cursor:pointer;flex:none}
+.hbtn{font-family:var(--ui);font-size:10px;letter-spacing:.08em;color:var(--soft);background:#37025a55;
+  border:1px solid #830cde88;border-radius:0px;height:30px;padding:0 10px;cursor:pointer;flex:none}
 .hbtn:hover{border-color:var(--acc2);color:#fff}
 .hbtn.active{border-color:var(--cy);color:var(--cy);background:#00ffff14}
 .popmenu{position:fixed;top:38px;left:0;z-index:30;width:238px;padding:10px 10px 6px;background:var(--bg0);
-  border:1px solid var(--acc2);border-radius:8px;box-shadow:0 0 26px #830cde99,0 10px 30px #000a}
+  border:1px solid var(--acc2);border-radius:0px;box-shadow:0 0 26px #830cde99,0 10px 30px #000a}
 .popmenu[hidden]{display:none}
 .popmenu input[type=number]{width:76px}
 .popmenu.wide{width:400px;max-height:calc(100vh - 50px);overflow-y:auto}
@@ -91,14 +91,14 @@ header .tb.hb svg{width:16px;height:16px}
 #toolbar .tb{width:100%;height:36px;min-width:0}
 #toolbar .tb svg{width:18px;height:18px}
 #colorSec{margin-top:auto}
-.tb{width:40px;height:40px;border-radius:7px;border:1px solid #830cde88;background:#37025a55;color:var(--soft);
+.tb{width:40px;height:40px;border-radius:3px;border:1px solid #830cde88;background:#37025a55;color:var(--soft);
   display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .12s;flex:none}
 .tb svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .tb:hover{border-color:var(--acc2);color:#fff;background:#830cde44}
 .tb:active{transform:scale(.94)}
 .tb.active{border-color:var(--cy);color:var(--cy);background:#00ffff14;box-shadow:0 0 14px #00ffff55,inset 0 0 10px #00ffff22}
 .tb:disabled{opacity:.3;cursor:default;pointer-events:none}
-.sep{width:28px;height:1px;background:#830cde88;margin:2px 0;flex:none}
+.sep{width:200px;height:1px;background:#830cde31;margin:2px 0;flex:none}
 
 /* stage */
 #stage{grid-area:stage;position:relative;overflow:hidden;touch-action:none;cursor:crosshair;
@@ -132,14 +132,14 @@ header .tb.hb svg{width:16px;height:16px}
 .sec h2 output{color:var(--cy)}
 input[type=range]{width:100%;accent-color:var(--acc2);height:22px}
 .row{display:flex;gap:8px;align-items:center}
-input[type=color]{width:42px;height:30px;border:1px solid var(--acc2);border-radius:6px;background:var(--bg0);padding:2px;cursor:pointer}
+input[type=color]{width:42px;height:30px;border:1px solid var(--acc2);border-radius:1px;background:var(--bg0);padding:2px;cursor:pointer}
 .hex{font-family:var(--mono);font-size:13px;color:var(--soft)}
 .swatches{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:7px}
-.sw{aspect-ratio:1;border-radius:4px;border:1px solid #ffffff33;cursor:pointer;min-height:0}
+.sw{aspect-ratio:1;border-radius:2px;border:1px solid #ffffff33;cursor:pointer;min-height:0}
 .sw:hover{outline:2px solid var(--cy)}
 .sw.sel{outline:2px solid var(--cy);box-shadow:0 0 10px #00ffff88}
 select,.btn{font-family:var(--ui);font-size:11px;font-weight:600;color:var(--txt);background:var(--bg1);
-  border:1px solid var(--acc);border-radius:6px;padding:7px 8px;cursor:pointer}
+  border:1px solid var(--acc);border-radius:1px;padding:5px 8px;cursor:pointer}
 .btn{letter-spacing:.06em;flex:1;text-align:center}
 .btn:hover{border-color:var(--cy);color:var(--cy)}
 .note{font-family:var(--mono);font-size:11.5px;line-height:1.3;color:var(--mute)}
@@ -159,14 +159,14 @@ select,.btn{font-family:var(--ui);font-size:11px;font-weight:600;color:var(--txt
 .onion-row input[type=range]{flex:1;min-width:0}
 .onion-row output{font-family:var(--mono);font-size:11px;color:var(--mute);width:30px;text-align:right}
 .tgl{--c:var(--cy);flex:none;width:64px;font-family:var(--ui);font-size:10px;font-weight:600;letter-spacing:.06em;
-  padding:7px 0;border-radius:6px;border:1px solid #ffffff22;background:var(--bg0);color:var(--mute);cursor:pointer}
+  padding:7px 0;border-radius:1px;border:1px solid #ffffff22;background:var(--bg0);color:var(--mute);cursor:pointer}
 .tgl.on{border-color:var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);
   box-shadow:0 0 10px color-mix(in srgb,var(--c) 40%,transparent)}
 .tgl.prev{--c:#ff3b3b}
 .tgl.next{--c:#00ffff}
 
 input[type=number],#exName{width:54px;font-family:var(--mono);font-size:12px;background:var(--bg1);color:var(--txt);
-  border:1px solid var(--acc);border-radius:6px;padding:5px 6px;-webkit-user-select:text;user-select:text}
+  border:1px solid var(--acc);border-radius:1px;padding:5px 6px;-webkit-user-select:text;user-select:text}
 input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 .onion-row[hidden]{display:none}
 #exInfo.warn{color:var(--pk)}
@@ -175,8 +175,8 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 
 /* layers */
 .sec h2 .sub{color:#6a6a96;letter-spacing:.04em;text-transform:none}
-#layerList{display:flex;flex-direction:column;gap:3px;max-height:176px;overflow-y:auto;margin-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--acc) transparent}
-.lyr{display:flex;align-items:center;gap:6px;padding:3px 5px;min-height:36px;border:1px solid #830cde66;border-radius:6px;background:#37025a33;cursor:pointer}
+#layerList{display:flex;flex-direction:column;gap:3px;max-height:200px;overflow-y:auto;margin-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--acc) transparent}
+.lyr{display:flex;align-items:center;gap:6px;padding:3px 5px;min-height:33px;border:1px solid #830cde66;border-radius:1px;background:#37025a33;cursor:pointer}
 .lyr:hover{border-color:var(--acc2)}
 .lyr.sel{border-color:var(--cy);background:#00ffff12;box-shadow:0 0 8px #00ffff44}
 .lyr.off .nm,.lyr.off canvas{opacity:.4}
@@ -240,7 +240,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 
 /* status */
 #status{grid-area:stat;display:flex;align-items:center;gap:16px;padding:0 10px;background:var(--bg1);
-  border-top:1px solid var(--acc);font-family:var(--mono);font-size:12px;color:var(--soft);white-space:nowrap;overflow:hidden}
+  border-top:1px solid var(--acc);font-family:var(--mono);font-size:10px;color:var(--soft);white-space:nowrap;overflow:hidden}
 #status b{color:var(--cy);font-weight:400}
 
 @media (max-width:900px){
@@ -251,24 +251,35 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
 <body>
 <div id="app">
   <header>
-    <h1><button class="titlebtn" id="helpBtn">DRAWING TOOL <span>&#9662;</span></button></h1>
+    <h1><button class="titlebtn" id="helpBtn">OSP<span>&#9662;</span></button></h1>
+
+    <button class="hbtn" id="fileMenuBtn">FILE &#9662;</button>
+    <button class="hbtn" id="exportMenuBtn">⬇ &#9662;</button>
+    <button class="hbtn" id="layerMenuBtn">LAYER &#9662;</button>
+    <button class="hbtn active" id="touchAssist">TOUCH ASSIST</button>
     <span class="hsep"></span>
+    <button class="tb hb" id="undoBtn" disabled><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
+    <button class="tb hb" id="redoBtn" disabled><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg></button>
+   
+    <span class="hsep"></span>
+
     <button class="tb hb" data-tool="hand"><svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-6-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg></button>
     <button class="tb hb" id="zoomOutBtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 11h6"/></svg></button>
     <button class="tb hb" id="zoomInBtn"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></svg></button>
     <button class="tb hb" id="fitBtn"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
     <span class="hsep"></span>
-    <select id="brushSel" class="hsel" aria-label="Brush type"><option value="pen">Fine tip</option><option value="brush">Thick brush</option></select>
-    <select id="modeSel" class="hsel" aria-label="Draw mode"><option value="smooth">Smooth</option><option value="crisp">Crisp</option></select>
+    
     <label class="hsize"><span>SIZE</span><input type="range" id="size" min="1" max="10" value="2"><output id="sizeOut">2</output></label>
     <span class="hsep"></span>
-    <button class="tb hb" id="undoBtn" disabled><svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg></button>
-    <button class="tb hb" id="redoBtn" disabled><svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg></button>
+    <select id="brushSel" class="hsel" aria-label="Brush type"><option value="pen">Fine tip</option><option value="brush">Thick brush</option></select>
+    <select id="modeSel" class="hsel" aria-label="Draw mode"><option value="smooth">Smooth</option><option value="crisp">Crisp</option></select>
     <span class="hsep"></span>
-    <button class="hbtn" id="fileMenuBtn">FILE &#9662;</button>
-    <button class="hbtn" id="layerMenuBtn">LAYER &#9662;</button>
-    <button class="hbtn" id="exportMenuBtn">EXPORT &#9662;</button>
-    <button class="hbtn active" id="touchAssist">TOUCH ASSIST</button>
+
+    
+    
+    
+    
+    
     <span class="spacer"></span>
     <button class="tb hb active" data-pane="tools"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
     <button class="tb hb active" data-pane="strip"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15h18"/></svg></button>
@@ -291,12 +302,75 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
       <button class="tb" id="popBtn"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><path d="M10 13l4-4M11 9h3v3"/></svg></button>
       </div>
     </div>
-    <div class="sec" id="colorSec">
-      <h2>Color</h2>
-      <div class="row"><input type="color" id="color" value="#000000"><span class="hex" id="hex">#000000</span></div>
-      <select id="palSel" style="width:100%;margin-top:7px" aria-label="Color palette"></select>
-      <div class="swatches" id="swatches"></div>
+
+
+    <span class="sep"></span>
+
+
+
+    <div class="sec" id="assistSec">
+      <h2>Line assist</h2>
+      <div class="onion-row">
+        <span class="lbl">STEADY</span>
+        <input type="range" id="stab" min="0" max="40" value="0"><output id="stabOut">OFF</output>
+      </div>
+      <div class="onion-row" id="tidyRow">
+        <button class="tgl" id="tidyBtn" style="width:auto;flex:1">AUTO-TIDY: OFF</button>
+      </div>
+      <div class="onion-row" id="mergeRow">
+        <span class="lbl">MERGE</span>
+        <input type="range" id="mergeAmt" min="0" max="16" value="4"><output id="mergeOut">4</output>
+        <span class="sep"></span>
+      </div>
     </div>
+    <div class="sec" id="shapeSec" hidden>
+      <h2>Shape</h2>
+      <div class="seg">
+        <button data-fill="outline" class="on">OUTLINE</button>
+        <button data-fill="filled">FILLED</button>
+        <span class="sep"></span>
+      </div>
+      <div class="onion-row" id="radiusRow" style="margin-top:8px;margin-bottom:0">
+        <span class="lbl">CORNERS</span>
+        <input type="range" id="cornerRad" min="0" max="250" value="0"><output id="cornerRadOut">SQUARE</output>
+        <span class="sep"></span>
+      </div>
+    </div>
+    <div class="sec" id="fillSec" hidden>
+      <h2>Fill</h2>
+      <div class="onion-row">
+        <span class="lbl">MODE</span>
+        <div class="seg" id="fillMode" style="flex:1">
+          <button data-fm="paint" class="on">COLOR</button><button data-fm="clear">NO FILL</button>
+          
+        </div>
+      </div>
+      <div class="onion-row">
+        <span class="lbl">TOLER.</span>
+        <input type="range" id="fillTol" min="0" max="100" value="30"><output id="fillTolOut">30%</output>
+      </div>
+      <div class="onion-row">
+        <span class="lbl">EXPAND</span>
+        <div class="seg" id="fillExpand" style="flex:1">
+          <button data-exp="0">0</button><button data-exp="1" class="on">1 PX</button><button data-exp="2">2 PX</button>
+        </div>
+      </div>
+      <div class="onion-row">
+        <span class="lbl">READ</span>
+        <select id="fillSrc" style="flex:1;min-width:0"></select>
+      </div>
+      <p class="note">Edges come from the layer in READ. Paint (or the transparent clear) goes onto the selected layer.</p>
+    </div>
+    <div class="sec" id="blurSec" hidden>
+      <h2>Blur</h2>
+      <div class="onion-row">
+        <span class="lbl">STRENGTH</span>
+        <input type="range" id="blurStr" min="1" max="100" value="30"><output id="blurOut">30%</output>
+      </div>
+      <p class="note">Higher strength = softer result.</p>
+    </div>
+
+
   </nav>
 
   <main id="stage">
@@ -376,16 +450,19 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
         <button class="tb sm" id="rotLBtn"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
         <button class="tb sm" id="rotRBtn"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg></button>
       </div>
+
       <div class="onion-row">
         <span class="lbl" style="width:40px">ANGLE</span>
         <input type="number" id="rotDeg" value="15" min="-180" max="180" step="1"><span class="unit">&deg;</span>
         <button class="btn sm" id="rotApply">APPLY</button>
       </div>
+ 
       <div class="onion-row">
         <span class="lbl" style="width:40px">SCALE</span>
         <input type="number" id="scalePct" value="50" min="10" max="400" step="5"><span class="unit">%</span>
         <button class="btn sm" id="scaleApply">APPLY</button>
       </div>
+ 
       <div class="onion-row">
         <span class="lbl" style="width:40px">CENTER</span>
         <button class="btn sm" id="centerBoth" style="flex:1">BOTH</button>
@@ -425,68 +502,33 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
         <button class="tb sm" id="downLayerBtn"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
         <button class="tb sm" id="mergeLayerBtn"><svg viewBox="0 0 24 24"><path d="M12 3v10"/><path d="m8 9 4 4 4-4"/><path d="M4 17h16M7 21h10"/></svg></button>
       </div>
+
+
       <div class="onion-row" style="margin-bottom:0">
         <span class="lbl">OPACITY</span>
         <input type="range" id="layerOp" min="0" max="100" value="100"><output id="layerOpOut">100%</output>
       </div>
+
+
+
+    <div class="sec" id="colorSec" style="margin-top:7px;">
+      
+      <h2>Color</h2>
+      <div class="row"><input type="color" id="color" value="#000000"><span class="hex" id="hex">#000000</span></div>
+      <span class="sep"></span>
+      <select id="palSel" style="width:100%;margin-top:7px" aria-label="Color palette"></select>
+      <div class="swatches" id="swatches"></div>
+      
     </div>
-    <div class="sec" id="assistSec">
-      <h2>Line assist</h2>
-      <div class="onion-row">
-        <span class="lbl">STEADY</span>
-        <input type="range" id="stab" min="0" max="40" value="0"><output id="stabOut">OFF</output>
-      </div>
-      <div class="onion-row" id="tidyRow">
-        <button class="tgl" id="tidyBtn" style="width:auto;flex:1">AUTO-TIDY: OFF</button>
-      </div>
-      <div class="onion-row" id="mergeRow">
-        <span class="lbl">MERGE</span>
-        <input type="range" id="mergeAmt" min="0" max="16" value="4"><output id="mergeOut">4</output>
-      </div>
-      <p class="note">Steady: the brush trails the pointer by this many px, so wobble never reaches the line. Auto-tidy (A): on lift, smooths the stroke and merges it with a nearby older pass into one line at the brush width. Merge: how far apart two passes can be (px beyond the brush width) and still merge.</p>
+
     </div>
-    <div class="sec" id="shapeSec" hidden>
-      <h2>Shape</h2>
-      <div class="seg">
-        <button data-fill="outline" class="on">OUTLINE</button>
-        <button data-fill="filled">FILLED</button>
-      </div>
-    </div>
-    <div class="sec" id="fillSec" hidden>
-      <h2>Fill</h2>
-      <div class="onion-row">
-        <span class="lbl">MODE</span>
-        <div class="seg" id="fillMode" style="flex:1">
-          <button data-fm="paint" class="on">COLOR</button><button data-fm="clear">NO FILL</button>
-        </div>
-      </div>
-      <div class="onion-row">
-        <span class="lbl">TOLER.</span>
-        <input type="range" id="fillTol" min="0" max="100" value="30"><output id="fillTolOut">30%</output>
-      </div>
-      <div class="onion-row">
-        <span class="lbl">EXPAND</span>
-        <div class="seg" id="fillExpand" style="flex:1">
-          <button data-exp="0">0</button><button data-exp="1" class="on">1 PX</button><button data-exp="2">2 PX</button>
-        </div>
-      </div>
-      <div class="onion-row">
-        <span class="lbl">READ</span>
-        <select id="fillSrc" style="flex:1;min-width:0"></select>
-      </div>
-      <p class="note">Edges come from the layer in READ. Paint (or the transparent clear) goes onto the selected layer.</p>
-    </div>
-    <div class="sec" id="blurSec" hidden>
-      <h2>Blur</h2>
-      <div class="onion-row">
-        <span class="lbl">STRENGTH</span>
-        <input type="range" id="blurStr" min="1" max="100" value="30"><output id="blurOut">30%</output>
-      </div>
-      <p class="note">Uses the brush size in the top bar. Higher strength = softer result.</p>
-    </div>
+
+
+
     <div class="sec">
       <h2>Paper</h2>
       <div class="row"><input type="color" id="paperColor" value="#ffffff"><span class="note">Background only. Not exported.</span></div>
+      <span class="sep"></span>
     </div>
     <div class="sec">
       <h2>Onion skin</h2>
@@ -494,7 +536,7 @@ input[type=number]:focus,#exName:focus{border-color:var(--cy);outline:none}
         <button class="tgl prev on" id="onionPrev">&#9664; PREV</button>
         <input type="range" id="onionPrevOp" min="5" max="100" value="35"><output id="onionPrevOut">35%</output>
       </div>
-      <p class="note">Shows the previous frame. Use the onion icon on a layer to choose which of its layers appear in the NEXT frame's onion skin.</p>
+     <span class="sep"></span>
     </div>
   </aside>
 
@@ -1076,6 +1118,26 @@ const Engine = (() => {
     const t = crispN(s);
     if (kind === 'rect') {
       const x0 = Math.round(x), y0 = Math.round(y), x1 = Math.round(x + w), y1 = Math.round(y + h);
+      const R = Math.min(Math.max(0, Math.round(s.radius || 0)), Math.floor(Math.min(x1 - x0, y1 - y0) / 2));
+      if (R > 0) {                                                          // rounded corners
+        if (filled) {
+          crispFill(ctx, s, c => {                                          // a pixel is in if its center is inside the rounded rect
+            for (let j = y0; j < y1; j++) {
+              const d = Math.min(j + 0.5 - y0, y1 - j - 0.5);               // distance of this row's center from the nearest top/bottom edge
+              let inset = 0;
+              if (d < R) inset = Math.ceil(R - Math.sqrt(Math.max(0, R * R - (R - d) * (R - d))) - 1e-6);
+              if (x1 - x0 - 2 * inset > 0) c.rect(x0 + inset, j, x1 - x0 - 2 * inset, 1);
+            }
+          });
+        } else {
+          const pts = [], arc = (cx, cy, a0) => { const n = Math.max(4, Math.ceil(R * Math.PI / 2)); for (let i = 0; i <= n; i++) { const a = a0 + i / n * Math.PI / 2; pts.push({ x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R }); } };
+          arc(x1 - R, y0 + R, -Math.PI / 2); arc(x1 - R, y1 - R, 0); arc(x0 + R, y1 - R, Math.PI / 2); arc(x0 + R, y0 + R, Math.PI);
+          pts.push({ x: pts[0].x, y: pts[0].y });                           // close the outline
+          crispPoly(ctx, pts, s, edit);
+        }
+        if (edit) { const r = filled ? 2 : t * 0.75 + 2; edit.touch(x, y, r); edit.touch(x + w, y + h, r); }
+        return;
+      }
       crispFill(ctx, s, c => {
         if (filled) { c.rect(x0, y0, x1 - x0, y1 - y0); return; }
         const o = Math.floor(t / 2), W = x1 - x0 + t, H = y1 - y0 + t;     // four bars centered on the edges, square corners
@@ -1385,7 +1447,13 @@ const Engine = (() => {
     const w = Math.abs(box.x1 - box.x0), h = Math.abs(box.y1 - box.y0);
     ctx.save(); setStyle(ctx, s);
     ctx.beginPath();
-    if (kind === 'rect') { ctx.lineJoin = 'miter'; ctx.rect(x, y, w, h); }
+    if (kind === 'rect') {
+      const R = Math.min(Math.max(0, s.radius || 0), Math.min(w, h) / 2);
+      if (R > 0) {
+        ctx.moveTo(x + R, y); ctx.arcTo(x + w, y, x + w, y + h, R); ctx.arcTo(x + w, y + h, x, y + h, R);
+        ctx.arcTo(x, y + h, x, y, R); ctx.arcTo(x, y, x + w, y, R); ctx.closePath();
+      } else { ctx.lineJoin = 'miter'; ctx.rect(x, y, w, h); }
+    }
     else ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     if (filled) ctx.fill(); else ctx.stroke();
     ctx.restore();
@@ -1819,7 +1887,7 @@ const Engine = (() => {
   const cursorEl = $('#cursor');
   const chainBar = $('#chainBar');
 
-  const state = { tool: 'brush', crisp: false, stab: 0, tidy: false, merge: 4, brushId: 'pen', sizes: { pen: 2, brush: 20, eraser: 10, blur: 20 }, size: 2, color: '#000000', filled: false, paperColor: '#ffffff', fillTol: 30, fillExpand: 1, fillSrc: 'active', blurStr: 30, zoom: 1, panX: 0, panY: 0, space: false };
+  const state = { tool: 'brush', crisp: false, stab: 0, tidy: false, merge: 4, brushId: 'pen', sizes: { pen: 2, brush: 20, eraser: 10, blur: 20 }, size: 2, color: '#000000', filled: false, radius: 0, paperColor: '#ffffff', fillTol: 30, fillExpand: 1, fillSrc: 'active', blurStr: 30, zoom: 1, panX: 0, panY: 0, space: false };
 
   /* ---------- onion skin ---------- */
   // One previous frame only (cheaper and plenty for tracing). The engine still understands next / prevCount
@@ -1984,13 +2052,14 @@ const Engine = (() => {
     $('#assistSec').hidden = !(t === 'brush' || t === 'eraser');
     $('#tidyRow').hidden = $('#mergeRow').hidden = t !== 'brush';
     $('#shapeSec').hidden = !(t === 'rect' || t === 'circle');
+    $('#radiusRow').hidden = t !== 'rect';
     $('#fillSec').hidden = t !== 'fill';
     $('#blurSec').hidden = t !== 'blur';
     syncSize();
   }
   $$('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 
-  const style = () => ({ size: state.size, color: state.color, erase: state.tool === 'eraser', crisp: state.crisp });
+  const style = () => ({ size: state.size, color: state.color, erase: state.tool === 'eraser', crisp: state.crisp, radius: state.tool === 'rect' ? state.radius : 0 });
 
   function updateCursorSize() {
     const d = Math.max(4, state.size * state.zoom);
@@ -2207,6 +2276,16 @@ const Engine = (() => {
     $$('[data-fill]').forEach(b => b.classList.toggle('on', (b.dataset.fill === 'filled') === v));
   }
   $$('[data-fill]').forEach(b => b.addEventListener('click', () => setFill(b.dataset.fill === 'filled')));
+  $('#cornerRad').addEventListener('input', e => {
+    state.radius = +e.target.value;
+    $('#cornerRadOut').textContent = state.radius ? state.radius + 'px' : 'SQUARE';
+    try { localStorage.setItem('dtCornerRad', String(state.radius)); } catch (err) { /* optional */ }
+    drawShapePreview();
+  });
+  try {
+    const r = +localStorage.getItem('dtCornerRad');
+    if (r >= 0 && r <= 250) { state.radius = r; $('#cornerRad').value = r; $('#cornerRadOut').textContent = r ? r + 'px' : 'SQUARE'; }
+  } catch (err) { /* optional */ }
 
   function shapeBox(a, b, shift, alt) {
     let dx = b.x - a.x, dy = b.y - a.y;
